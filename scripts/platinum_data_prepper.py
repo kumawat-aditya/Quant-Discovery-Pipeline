@@ -1,4 +1,4 @@
-# platinum_preprocessor.py (V4.0 - Final Polish & Documentation)
+# platinum_preprocessor.py (V4.1 - fixed missing trade_type column issue)
 
 """
 Platinum Pre-Processor: Unified Blueprint Discovery & Target Extraction
@@ -82,15 +82,22 @@ def _apply_binning(chunk: pd.DataFrame, all_levels: List[str]) -> pd.DataFrame:
 def _aggregate_blueprints(agg_chunk: pd.DataFrame, all_levels: List[str]) -> Dict:
     """Performs groupby operations to discover and count all blueprint occurrences WITHIN DEFINED RANGES."""
     chunk_results = defaultdict(nested_dd)
+
+    # ### <<< MODIFIED: Ensure the trade_type column exists before proceeding.
+    if 'trade_type' not in agg_chunk.columns:
+        raise KeyError("'trade_type' column not found in chunk. Cannot create directional blueprints.")
+
     for level in all_levels:
         # --- SL-Pct ---
         col = f'sl_place_pct_to_{level}_bin'
         if col in agg_chunk.columns:
             # Filter for rows where the SL placement is within a reasonable range (-200% to +200%).
             df_filtered = agg_chunk[agg_chunk[col].between(-20, 20, inclusive='both')]
-            groups = df_filtered.dropna(subset=[col, 'tp_ratio']).groupby([col, 'tp_ratio', 'entry_time']).size()
-            for (sl_bin, tp_ratio, time), count in groups.items():
-                blueprint = ('SL-Pct', level, int(sl_bin), 'ratio', tp_ratio)
+            # ### <<< MODIFIED: Add 'trade_type' to the groupby to separate buy/sell strategies.
+            groups = df_filtered.dropna(subset=[col, 'tp_ratio']).groupby([col, 'tp_ratio', 'trade_type', 'entry_time'], observed=True).size()
+            for (sl_bin, tp_ratio, trade_type, time), count in groups.items():
+                # ### <<< MODIFIED: Add 'trade_type' to the blueprint definition tuple.
+                blueprint = ('SL-Pct', level, int(sl_bin), 'ratio', tp_ratio, trade_type)
                 chunk_results[blueprint][time] += count
 
         # --- TP-Pct ---
@@ -98,9 +105,11 @@ def _aggregate_blueprints(agg_chunk: pd.DataFrame, all_levels: List[str]) -> Dic
         if col in agg_chunk.columns:
             # Filter for rows where the TP placement is within a reasonable range (-200% to +200%).
             df_filtered = agg_chunk[agg_chunk[col].between(-20, 20, inclusive='both')]
-            groups = df_filtered.dropna(subset=[col, 'sl_ratio']).groupby([col, 'sl_ratio', 'entry_time']).size()
-            for (tp_bin, sl_ratio, time), count in groups.items():
-                blueprint = ('TP-Pct', 'ratio', sl_ratio, level, int(tp_bin))
+            # ### <<< MODIFIED: Add 'trade_type' to the groupby.
+            groups = df_filtered.dropna(subset=[col, 'sl_ratio']).groupby([col, 'sl_ratio', 'trade_type', 'entry_time'], observed=True).size()
+            for (tp_bin, sl_ratio, trade_type, time), count in groups.items():
+                # ### <<< MODIFIED: Add 'trade_type' to the blueprint definition tuple.
+                blueprint = ('TP-Pct', 'ratio', sl_ratio, level, int(tp_bin), trade_type)
                 chunk_results[blueprint][time] += count
 
         # --- SL-BPS ---
@@ -108,9 +117,11 @@ def _aggregate_blueprints(agg_chunk: pd.DataFrame, all_levels: List[str]) -> Dic
         if col in agg_chunk.columns:
             # Filter for rows where the SL distance is within a reasonable range (-50 to +50 bps).
             df_filtered = agg_chunk[agg_chunk[col].between(-50, 50, inclusive='both')]
-            groups = df_filtered.dropna(subset=[col, 'tp_ratio']).groupby([col, 'tp_ratio', 'entry_time']).size()
-            for (sl_bin, tp_ratio, time), count in groups.items():
-                blueprint = ('SL-BPS', level, sl_bin, 'ratio', tp_ratio)
+            # ### <<< MODIFIED: Add 'trade_type' to the groupby.
+            groups = df_filtered.dropna(subset=[col, 'tp_ratio']).groupby([col, 'tp_ratio', 'trade_type', 'entry_time'], observed=True).size()
+            for (sl_bin, tp_ratio, trade_type, time), count in groups.items():
+                # ### <<< MODIFIED: Add 'trade_type' to the blueprint definition tuple.
+                blueprint = ('SL-BPS', level, sl_bin, 'ratio', tp_ratio, trade_type)
                 chunk_results[blueprint][time] += count
 
         # --- TP-BPS ---
@@ -118,9 +129,11 @@ def _aggregate_blueprints(agg_chunk: pd.DataFrame, all_levels: List[str]) -> Dic
         if col in agg_chunk.columns:
             # Filter for rows where the TP distance is within a reasonable range (-50 to +50 bps).
             df_filtered = agg_chunk[agg_chunk[col].between(-50, 50, inclusive='both')]
-            groups = df_filtered.dropna(subset=[col, 'sl_ratio']).groupby([col, 'sl_ratio', 'entry_time']).size()
-            for (tp_bin, sl_ratio, time), count in groups.items():
-                blueprint = ('TP-BPS', 'ratio', sl_ratio, level, tp_bin)
+            # ### <<< MODIFIED: Add 'trade_type' to the groupby.
+            groups = df_filtered.dropna(subset=[col, 'sl_ratio']).groupby([col, 'sl_ratio', 'trade_type', 'entry_time'], observed=True).size()
+            for (tp_bin, sl_ratio, trade_type, time), count in groups.items():
+                # ### <<< MODIFIED: Add 'trade_type' to the blueprint definition tuple.
+                blueprint = ('TP-BPS', 'ratio', sl_ratio, level, tp_bin, trade_type)
                 chunk_results[blueprint][time] += count
                 
     return chunk_results
@@ -139,7 +152,9 @@ def discover_and_aggregate_chunk(task_tuple: Tuple[str, List[str]]) -> Dict:
         chunk['tp_ratio'] = chunk['tp_ratio'].round(5)
         
         binned_df = _apply_binning(chunk, all_levels)
-        agg_chunk = pd.concat([chunk[['entry_time', 'sl_ratio', 'tp_ratio']], binned_df], axis=1)
+
+        # ### <<< MODIFIED: Pass 'trade_type' from the source chunk to the aggregation chunk.
+        agg_chunk = pd.concat([chunk[['entry_time', 'sl_ratio', 'tp_ratio', 'trade_type']], binned_df], axis=1)
         
         chunk_results = _aggregate_blueprints(agg_chunk, all_levels)
         return {'status': 'success', 'result': chunk_results}
@@ -287,7 +302,13 @@ def run_preprocessor_for_instrument(instrument_name: str, base_dirs: Dict[str, s
     print("Phase 2 Complete. Final targets saved.")
     
     # Save the final combinations file
-    definitions = [{'key': key, 'type': bp[0], 'sl_def': bp[1], 'sl_bin': bp[2], 'tp_def': bp[3], 'tp_bin': bp[4]} for bp, key in master_blueprint_keys.items()]
+    # ### <<< MODIFIED: Update the definitions to include the new 'trade_type' column.
+    # The blueprint tuple 'bp' now has 6 elements instead of 5.
+    definitions = [
+        {'key': key, 'type': bp[0], 'sl_def': bp[1], 'sl_bin': bp[2], 
+         'tp_def': bp[3], 'tp_bin': bp[4], 'trade_type': bp[5]} 
+        for bp, key in master_blueprint_keys.items()
+    ]
     definitions_df = pd.DataFrame(definitions)
     definitions_df['num_candles'] = definitions_df['key'].map(master_candle_counts).fillna(0).astype(int)
     definitions_df.to_parquet(combinations_path, index=False)

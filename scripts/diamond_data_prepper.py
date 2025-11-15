@@ -1,299 +1,320 @@
-# diamond_data_prepper.py (Fully Automated)
+# diamond_data_prepper.py (V1.1 - Full Blueprint Integration)
 
 """
-Diamond Layer - Stage 0: The Data Prepper
+Diamond Layer - Prepper: The Trigger Engine
 
-This script is a critical, one-time utility that must be run before any
-backtesting can occur in the Diamond or Zircon layers. Its purpose is to
-"prepare once, test many."
+This script is the foundational data preparer for the entire Diamond Layer.
+It performs two critical, high-leverage tasks:
 
-It automates the entire feature generation pipeline (Silver -> Gold) for all
-available raw market data files. The output is a cache of analysis-ready
-market data saved in the efficient Parquet format. This pre-computation makes
-the subsequent backtesting stages incredibly fast because they no longer need
-to calculate indicators and features on the fly.
+1.  Cross-Market Data Preparation:
+    It ensures that all markets sharing the same timeframe as the primary
+    instrument have their Silver (features) and Gold (ML-ready) data files
+    generated. It intelligently invokes the generator scripts from previous
+    layers only when needed.
 
-A key feature of this prepper is its use of a **consistent scaler**. It fits a
-`StandardScaler` on the first market's data and then uses that *same fitted
-scaler* to `transform` all other markets. This ensures that a feature value
-(e.g., RSI=70) is represented by the same scaled number across all datasets,
-making the discovered rules more robust and comparable across different
-instruments.
+2.  Trigger Time Extraction:
+    This is its core function. It takes the discovered strategies from the
+    Platinum Layer and performs the heavy, one-time computation of finding
+    every single timestamp where a strategy's market conditions were met.
+    It does this across ALL relevant markets and saves the results in a
+    highly organized structure, perfectly embodying the "Prepare Once, Test Many"
+    philosophy of the pipeline.
+
+V1.1 Update: Now merges discovered strategies with the platinum combinations
+file to carry forward the full blueprint definition (including trade_type)
+into the Diamond Layer.
 """
+
+import os
+import re
+import sys
+import hashlib
+import subprocess
+import traceback
+from functools import partial
+from multiprocessing import Pool, cpu_count
+from typing import Dict, List, Tuple
+import time
 
 import pandas as pd
-import numpy as np
-import os
 from tqdm import tqdm
-import re
-import gc
-import ta
-import talib
-import numba
-from sklearn.preprocessing import StandardScaler
-import sys # <-- IMPORT SYS MODULE
 
-# --- CONFIGURATION & COPIED FUNCTIONS ---
-# These configurations and helper functions are identical to those in the
-# Silver and Gold layers, ensuring that the feature generation process is
-# perfectly replicated for the backtesting environment.
+try:
+    import pyarrow.parquet as pq
+except ImportError:
+    print("[FATAL] 'pyarrow' library not found. Please run 'pip install pyarrow'.")
+    sys.exit(1)
 
-SMA_PERIODS, EMA_PERIODS = [20, 50, 100, 200], [8, 13, 21, 50]
-BBANDS_PERIOD, BBANDS_STD_DEV, RSI_PERIOD = 20, 2.0, 14
-MACD_FAST, MACD_SLOW, MACD_SIGNAL = 12, 26, 9
-ATR_PERIOD, ADX_PERIOD, PIVOT_WINDOW = 14, 14, 10
-INDICATOR_WARMUP_PERIOD = 200
+# --- CONFIGURATION ---
+MAX_CPU_USAGE: int = max(1, cpu_count() - 2)
 
-def robust_read_csv(filepath):
+# --- WORKER-SPECIFIC GLOBAL ---
+worker_gold_features_df: pd.DataFrame
+
+def init_worker(gold_features_df: pd.DataFrame):
+    """Initializer for each worker process, making the Gold DF available."""
+    global worker_gold_features_df
+    worker_gold_features_df = gold_features_df
+
+# --- PHASE 1: DATA PREPARATION ---
+
+def prepare_cross_market_data(master_instrument: str, base_dirs: Dict[str, str]) -> List[str]:
     """
-    Reads a raw OHLC CSV file reliably, handling common formatting inconsistencies.
-
-    This function is designed to be resilient to different CSV delimiters and
-    column counts. It automatically assigns standard column names, adds a dummy
-    volume column if one is not present, converts columns to their proper
-    numeric and datetime formats, and sorts the data by time.
-
-    Args:
-        filepath (str): The full path to the raw input CSV file.
-
-    Returns:
-        pd.DataFrame: A clean, sorted DataFrame with standardized column names.
+    Ensures Silver and Gold feature files exist for all instruments of the same
+    timeframe as the master instrument.
     """
-    df = pd.read_csv(filepath, header=None, sep=None, engine='python')
-    if df.shape[1] > 5:
-        df.columns = ['time', 'open', 'high', 'low', 'close', 'volume']
-    elif df.shape[1] == 5:
-        df.columns = ['time', 'open', 'high', 'low', 'close']
-        df['volume'] = 1
-    else:
-        raise ValueError(f"File '{filepath}' does not have 5 or 6 columns.")
-    df['time'] = pd.to_datetime(df['time'])
-    df[['open', 'high', 'low', 'close', 'volume']] = df[['open', 'high', 'low', 'close', 'volume']].apply(pd.to_numeric)
-    return df.sort_values('time').reset_index(drop=True)
-
-@numba.njit
-def _calculate_s_r_numba(lows, highs, window):
-    """
-    Identifies fractal support and resistance points using a high-speed Numba kernel.
-
-    This function iterates through price data and identifies local minima and maxima
-    within a specified rolling window. A low is marked as a support point if it is
-    the lowest value in the surrounding window, and a high is marked as a resistance
-    point if it is the highest.
-
-    Args:
-        lows (np.array): A NumPy array of low prices.
-        highs (np.array): A NumPy array of high prices.
-        window (int): The number of candles to look forward and backward to define the local window.
-
-    Returns:
-        tuple: A tuple of two NumPy arrays (support_points, resistance_points).
-    """
-    n = len(lows)
-    support, resistance = np.full(n, np.nan, dtype=np.float32), np.full(n, np.nan, dtype=np.float32)
-    for i in range(window, n - window):
-        if lows[i] == np.min(lows[i - window : i + window + 1]):
-            support[i] = lows[i]
-        if highs[i] == np.max(highs[i - window : i + window + 1]):
-            resistance[i] = highs[i]
-    return support, resistance
-
-def add_support_resistance(df, window=PIVOT_WINDOW):
-    """
-    Calculates and adds forward-filled support and resistance levels to the DataFrame.
-
-    This function acts as a wrapper for the core Numba S/R calculation. It calls
-    the high-speed Numba function and then forward-fills the results to ensure
-    every candle has a value for the "last known" support and resistance level.
-
-    Args:
-        df (pd.DataFrame): The input market data DataFrame.
-        window (int): The window size for the fractal calculation.
-
-    Returns:
-        pd.DataFrame: The DataFrame with 'support' and 'resistance' columns added.
-    """
-    s_pts, r_pts = _calculate_s_r_numba(df["low"].values.astype(np.float32), df["high"].values.astype(np.float32), window)
-    sr_df = pd.DataFrame({'s_pts': s_pts, 'r_pts': r_pts}, index=df.index)
-    df["support"], df["resistance"] = sr_df["s_pts"].ffill(), sr_df["r_pts"].ffill()
-    return df
-
-def add_all_market_features(df):
-    """
-    Generates a comprehensive suite of Silver-layer market features for raw OHLC data.
-
-    This function replicates the complete feature engineering process of the
-    Silver layer. It calculates technical indicators, candlestick patterns, market
-    regimes, and support/resistance levels to create a rich, contextual dataset
-    for each candle.
-
-    Args:
-        df (pd.DataFrame): The raw OHLC DataFrame.
-
-    Returns:
-        pd.DataFrame: The original DataFrame enriched with over 200 feature columns.
-    """
-    indicator_df = pd.DataFrame(index=df.index)
-    for p in SMA_PERIODS: indicator_df[f"SMA_{p}"] = ta.trend.SMAIndicator(df["close"], p).sma_indicator()
-    for p in EMA_PERIODS: indicator_df[f"EMA_{p}"] = ta.trend.EMAIndicator(df["close"], p).ema_indicator()
-    bb = ta.volatility.BollingerBands(df["close"], BBANDS_PERIOD, BBANDS_STD_DEV)
-    indicator_df["BB_upper"], indicator_df["BB_lower"], indicator_df["BB_width"] = bb.bollinger_hband(), bb.bollinger_lband(), bb.bollinger_wband()
-    indicator_df[f"RSI_{RSI_PERIOD}"] = ta.momentum.RSIIndicator(df["close"], RSI_PERIOD).rsi()
-    indicator_df["MACD_hist"] = ta.trend.MACD(df["close"], MACD_SLOW, MACD_FAST, MACD_SIGNAL).macd_diff()
-    indicator_df[f"ATR_{ATR_PERIOD}"] = ta.volatility.AverageTrueRange(df["high"], df["low"], df["close"], ATR_PERIOD).average_true_range()
-    indicator_df["ADX"] = ta.trend.ADXIndicator(df["high"], df["low"], df["close"], ADX_PERIOD).adx()
-    indicator_df["OBV"] = ta.volume.OnBalanceVolumeIndicator(df["close"], df["volume"]).on_balance_volume()
-    atr = indicator_df[f"ATR_{ATR_PERIOD}"]
-    indicator_df["ATR_level_up_1x"], indicator_df["ATR_level_down_1x"] = df["close"] + atr, df["close"] - atr
-    price_action_df = pd.DataFrame(index=df.index)
-    price_action_df['session'] = df['time'].dt.hour.map(lambda h: 'London' if 7<=h<12 else 'London_NY_Overlap' if 12<=h<16 else 'New_York' if 16<=h<21 else 'Asian')
-    price_action_df['trend_regime'] = np.where(indicator_df['ADX'] > 25, 'trend', 'range')
-    price_action_df['vol_regime'] = np.where(atr > atr.rolling(50).mean(), 'high_vol', 'low_vol')
-    patterns_df = pd.DataFrame({p: getattr(talib, p)(df["open"], df["high"], df["low"], df["close"]) for p in talib.get_function_groups().get("Pattern Recognition", [])}, index=df.index)
-    combined = pd.concat([df, indicator_df, price_action_df, patterns_df], axis=1)
-    return add_support_resistance(combined)
-
-def create_gold_features(features_df, scaler=None):
-    """
-    Transforms a Silver-layer DataFrame into a Gold-layer, ML-ready dataset.
-
-    This function replicates the Gold-layer preprocessing pipeline. It normalizes
-    absolute price levels, one-hot encodes categorical features, discretizes
-    candlestick pattern scores, and scales all numeric features. Crucially, it
-    can operate in two modes:
-    1. If `scaler` is None, it will create and fit a new `StandardScaler`.
-    2. If a pre-fitted `scaler` is provided, it will use that scaler to `transform`
-       the data, ensuring consistency across different datasets.
-
-    Args:
-        features_df (pd.DataFrame): The Silver-layer DataFrame with all features.
-        scaler (sklearn.preprocessing.StandardScaler, optional): A pre-fitted
-            scaler object. If None, a new one will be fitted. Defaults to None.
-
-    Returns:
-        tuple: A tuple containing:
-               - The transformed, ML-ready Gold DataFrame.
-               - The scaler object used for the transformation (either the one
-                 that was passed in or the newly fitted one).
-    """
-    df = features_df.copy()
-    abs_price_cols = [col for col in df.columns if re.match(r'^(open|high|low|close|SMA_\d+|EMA_\d+|BB_(upper|lower)|support|resistance|ATR_level_.+)$', col)]
-    for col in abs_price_cols:
-        if col != 'close': df[f'{col}_dist_norm'] = (df['close'] - df[col]) / df['close']
-    df.drop(columns=abs_price_cols + ['volume'], inplace=True, errors='ignore')
-    df = pd.get_dummies(df, columns=['session', 'trend_regime', 'vol_regime'], drop_first=True)
-    candle_cols = [col for col in df.columns if col.startswith("CDL")]
-    for col in candle_cols:
-        df[col] = df[col].fillna(0).apply(lambda v: 1.0 if v >= 80 else 0.5 if v > 0 else -1.0 if v <= -80 else -0.5 if v < 0 else 0.0)
-    non_scalable = set(candle_cols + [c for c in df.columns if any(s in c for s in ['session_', 'trend_regime_', 'vol_regime_'])] + ['time'])
-    to_scale = [c for c in df.columns if c not in non_scalable and df[c].dtype in ['float32', 'float64', 'int32', 'int64']]
+    print("\n--- Phase 1: Preparing Cross-Market Data ---")
     
-    if scaler is None:
-        # If no scaler is provided, create and fit a new one.
-        scaler = StandardScaler()
-        df[to_scale] = scaler.fit_transform(df[to_scale].fillna(0))
-        return df, scaler
+    timeframe_match = re.search(r'(\d+)', master_instrument)
+    if not timeframe_match:
+        print(f"[ERROR] Could not parse timeframe from master instrument '{master_instrument}'.")
+        return []
+    timeframe = timeframe_match.group(1)
+    
+    print(f"[INFO] Master timeframe detected: {timeframe}m. Scanning for related instruments...")
+    
+    try:
+        raw_files = os.listdir(base_dirs['raw'])
+    except FileNotFoundError:
+        print(f"[ERROR] Raw data directory not found at: {base_dirs['raw']}")
+        return []
+
+    all_relevant_instruments = sorted([
+        os.path.splitext(f)[0] for f in raw_files if f.endswith('.csv') and timeframe in f
+    ])
+    
+    if not all_relevant_instruments:
+        print("[WARN] No relevant instruments found for this timeframe.")
+        return []
+
+    print(f"Found {len(all_relevant_instruments)} instruments: {', '.join(all_relevant_instruments)}")
+
+    for instrument in tqdm(all_relevant_instruments, desc="Checking Data Integrity"):
+        silver_path = os.path.join(base_dirs['silver_features'], f"{instrument}.csv")
+        gold_path = os.path.join(base_dirs['gold_features'], f"{instrument}.parquet")
+        
+        if not os.path.exists(silver_path):
+            print(f"\n[INFO] Silver features for {instrument} are missing. Generating...")
+            try:
+                subprocess.run([
+                    sys.executable, os.path.join(base_dirs['scripts'], 'silver_data_generator.py'),
+                    f"{instrument}.csv", "--features-only"
+                ], check=True, capture_output=True, text=True)
+            except subprocess.CalledProcessError as e:
+                print(f"[ERROR] Failed to generate Silver features for {instrument}.")
+                print(f"Stderr: {e.stderr}")
+                continue
+
+        if not os.path.exists(gold_path):
+            print(f"\n[INFO] Gold features for {instrument} are missing. Generating...")
+            try:
+                subprocess.run([
+                    sys.executable, os.path.join(base_dirs['scripts'], 'gold_data_generator.py'),
+                    f"{instrument}.csv"
+                ], check=True, capture_output=True, text=True)
+            except subprocess.CalledProcessError as e:
+                print(f"[ERROR] Failed to generate Gold features for {instrument}.")
+                print(f"Stderr: {e.stderr}")
+
+    print("[SUCCESS] All required Silver and Gold data files are prepared.")
+    return all_relevant_instruments
+
+# --- PHASE 2: TRIGGER EXTRACTION ---
+
+def process_strategy_task(
+    strategy_row: pd.Series, 
+    instrument_to_scan: str, 
+    master_instrument: str,
+    base_dirs: Dict[str, str]
+) -> bool:
+    """
+    Worker function. Finds and saves trigger times for one strategy on one market.
+    """
+    market_rule = strategy_row['market_rule']
+    trigger_key = strategy_row['trigger_key']
+    
+    try:
+        trigger_times_df = worker_gold_features_df.query(market_rule)
+        
+        if not trigger_times_df.empty:
+            output_dir = os.path.join(base_dirs['triggers'], master_instrument, instrument_to_scan)
+            os.makedirs(output_dir, exist_ok=True)
+            output_path = os.path.join(output_dir, f"{trigger_key}.parquet")
+            
+            trigger_times_df[['time']].to_parquet(output_path, index=False)
+        return True
+    except Exception:
+        return False
+
+
+def extract_triggers_for_instrument(master_instrument: str, all_instruments: List[str], base_dirs: Dict[str, str]):
+    """
+    Orchestrates the discovery and saving of trigger times for new strategies.
+    """
+    print("\n--- Phase 2: Extracting Trigger Times ---")
+    
+    # ### <<< MODIFIED BLOCK: This entire section is updated to handle the merge.
+    
+    # Step 1: Load all three necessary data sources.
+    platinum_strategies_path = os.path.join(base_dirs['platinum_strategies'], f"{master_instrument}.parquet")
+    platinum_combo_path = os.path.join(base_dirs['platinum_combo'], f"{master_instrument}.parquet")
+    diamond_strategies_path = os.path.join(base_dirs['diamond_strategies'], f"{master_instrument}.parquet")
+
+    try:
+        source_strategies_df = pd.read_parquet(platinum_strategies_path)
+        combo_df = pd.read_parquet(platinum_combo_path)
+    except FileNotFoundError as e:
+        print(f"[ERROR] A required Platinum file is missing: {e}. Cannot proceed.")
+        return
+
+    if source_strategies_df.empty:
+        print("[INFO] No discovered strategies found in Platinum layer. Nothing to process.")
+        return
+
+    # Step 2: Enrich the discovered strategies with their full blueprint definitions.
+    # This merge adds 'type', 'sl_def', 'tp_def', 'trade_type', etc., to each strategy.
+    enriched_strategies_df = pd.merge(source_strategies_df, combo_df, on='key', how='left')
+
+    # Step 3: Identify what is new by comparing against the existing Diamond file.
+    # The comparison now uses 'key' and 'market_rule' as a composite unique identifier.
+    try:
+        processed_strategies_df = pd.read_parquet(diamond_strategies_path)
+        new_strategies_df = enriched_strategies_df.merge(
+            processed_strategies_df[['key', 'market_rule']],
+            on=['key', 'market_rule'],
+            how='left',
+            indicator=True
+        ).query('_merge == "left_only"').drop('_merge', axis=1)
+    except FileNotFoundError:
+        processed_strategies_df = pd.DataFrame() # Create empty DF if it doesn't exist
+        new_strategies_df = enriched_strategies_df.copy()
+
+    # ### <<< END OF MODIFIED BLOCK
+
+    if new_strategies_df.empty:
+        print("[INFO] No new strategies found to process.")
+        return
+        
+    print(f"Found {len(new_strategies_df)} new strategies to process.")
+
+    # Generate unique trigger_key for each new strategy
+    new_strategies_df['trigger_key'] = new_strategies_df.apply(
+        lambda row: hashlib.sha256(f"{row['key']}-{row['market_rule']}".encode()).hexdigest()[:16],
+        axis=1
+    )
+    
+    for instrument_to_scan in all_instruments:
+        print(f"\nScanning for triggers on market: {instrument_to_scan}...")
+        gold_path = os.path.join(base_dirs['gold_features'], f"{instrument_to_scan}.parquet")
+        try:
+            gold_df = pd.read_parquet(gold_path)
+            gold_df['time'] = pd.to_datetime(gold_df['time']).dt.tz_localize(None)
+        except FileNotFoundError:
+            print(f"[WARN] Gold features file not found for {instrument_to_scan}. Skipping.")
+            continue
+            
+        tasks = [row for _, row in new_strategies_df.iterrows()]
+        
+        worker_func = partial(
+            process_strategy_task,
+            instrument_to_scan=instrument_to_scan,
+            master_instrument=master_instrument,
+            base_dirs=base_dirs
+        )
+        
+        with Pool(processes=MAX_CPU_USAGE, initializer=init_worker, initargs=(gold_df,)) as pool:
+            list(tqdm(pool.imap_unordered(worker_func, tasks), total=len(tasks), desc=f"Processing on {instrument_to_scan}"))
+
+    # Finalization: Append new, fully-defined strategies to the diamond strategies file
+    print("\n[FINALIZE] Appending new strategies to the master list...")
+    # Use concat which is safer for this append operation
+    final_df = pd.concat([processed_strategies_df, new_strategies_df], ignore_index=True)
+    
+    final_df.to_parquet(diamond_strategies_path, index=False)
+    print(f"[SUCCESS] Saved/updated master strategy list at {diamond_strategies_path}")
+
+
+def _select_instrument_interactively(platinum_dir: str) -> List[str]:
+    """Scans for instruments in the Platinum layer and prompts user for selection."""
+    print("[INFO] Interactive Mode: Scanning for instruments with discovered strategies...")
+    try:
+        all_instruments = sorted([
+            os.path.splitext(f)[0] for f in os.listdir(platinum_dir) if f.endswith('.parquet')
+        ])
+        if not all_instruments:
+            print("[INFO] No discovered strategy files found in Platinum layer.")
+            return []
+            
+        print("\n--- Select Master Instrument(s) to Process ---")
+        for i, f in enumerate(all_instruments): print(f"  [{i+1}] {f}")
+        print("  [a] Process All")
+        user_input = input("\nEnter selection (e.g., 1,3 or a): > ").strip().lower()
+
+        if not user_input: return []
+        if user_input == 'a': return all_instruments
+
+        selected = []
+        indices = {int(i.strip()) - 1 for i in user_input.split(',')}
+        for idx in sorted(indices):
+            if 0 <= idx < len(all_instruments):
+                selected.append(all_instruments[idx])
+            else:
+                print(f"[WARN] Invalid selection '{idx + 1}' ignored.")
+        return selected
+    except ValueError:
+        print("[ERROR] Invalid input. Please enter numbers or 'a'.")
+        return []
+    except FileNotFoundError:
+        print(f"[ERROR] Platinum strategies directory not found at: {platinum_dir}")
+        return []
+
+
+def main():
+    """Main execution function."""
+    start_time = time.time()
+    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+    
+    base_dirs = {
+        'scripts': SCRIPT_DIR,
+        'raw': os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'raw_data')),
+        'silver_features': os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'silver_data', 'features')),
+        'gold_features': os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'gold_data', 'features')),
+        'platinum_strategies': os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'platinum_data', 'discovered_strategies')),
+        'platinum_combo': os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'platinum_data', 'combinations')), # <-- Added combo path
+        'diamond_strategies': os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'diamond_data', 'strategies')),
+        'triggers': os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'diamond_data', 'triggers')),
+    }
+    
+    os.makedirs(base_dirs['diamond_strategies'], exist_ok=True)
+    os.makedirs(base_dirs['triggers'], exist_ok=True)
+
+    print("--- Diamond Layer - Prepper: The Trigger Engine (V1.1) ---")
+    
+    target_arg = sys.argv[1] if len(sys.argv) > 1 else None
+    if target_arg:
+        print(f"\n[INFO] Targeted Mode: Processing master instrument '{target_arg}'")
+        instruments_to_process = [target_arg]
     else:
-        # If a scaler is provided, use it to transform the data.
-        df[to_scale] = scaler.transform(df[to_scale].fillna(0))
-        return df, scaler
+        # ### <<< MODIFIED: The selection should be based on discovered strategies, not combos
+        instruments_to_process = _select_instrument_interactively(base_dirs['platinum_strategies'])
+
+    if not instruments_to_process:
+        print("\n[INFO] No instruments selected. Exiting.")
+    else:
+        print(f"\n[QUEUE] Queued {len(instruments_to_process)} master instrument(s): {', '.join(instruments_to_process)}")
+        for master_instrument in instruments_to_process:
+            print(f"\n{'='*70}\nProcessing Master Instrument: {master_instrument}\n{'='*70}")
+            try:
+                all_relevant_instruments = prepare_cross_market_data(master_instrument, base_dirs)
+                
+                if all_relevant_instruments:
+                    extract_triggers_for_instrument(master_instrument, all_relevant_instruments, base_dirs)
+            except Exception:
+                print(f"\n[FATAL ERROR] A critical error occurred while processing {master_instrument}.")
+                traceback.print_exc()
+
+    end_time = time.time()
+    print(f"\nDiamond data preparation finished. Total time: {end_time - start_time:.2f} seconds.")
 
 if __name__ == "__main__":
-    """
-    Main execution block.
-    
-    This script can be run in two modes:
-    1. Discovery Mode (no arguments): Scans for all raw files and prepares data for any that are missing.
-       Example: `python scripts/diamond_data_prepper.py`
-       
-    2. Targeted Mode (one argument): Identifies the timeframe from the target file and prepares
-       data for ALL raw files that share that same timeframe.
-       Example: `python scripts/diamond_data_prepper.py XAUUSD15.csv`
-    """
-    # --- Define Project Directory Structure ---
-    core_dir = os.path.dirname(os.path.abspath(__file__))
-    raw_dir = os.path.abspath(os.path.join(core_dir, '..', 'raw_data'))
-    prepared_data_dir = os.path.abspath(os.path.join(core_dir, '..', 'diamond_data', 'prepared_data'))
-    os.makedirs(prepared_data_dir, exist_ok=True)
-    
-    # --- Discover Raw Data Files ---
-    try:
-        all_raw_files = [f for f in os.listdir(raw_dir) if f.endswith('.csv')]
-    except FileNotFoundError:
-        print(f"[ERROR] Raw data directory not found. Exiting."); sys.exit(1)
-    
-    if not all_raw_files:
-        print("[ERROR] No raw data files found to process. Exiting."); sys.exit(1)
-
-    # --- NEW: DUAL-MODE FILE DISCOVERY LOGIC ---
-    target_file_arg = sys.argv[1] if len(sys.argv) > 1 else None
-    files_to_consider = []
-
-    if target_file_arg:
-        # --- Targeted Mode ---
-        print(f"[TARGET] Targeted Mode: Preparing data for timeframe of '{target_file_arg}'")
-        match = re.search(r'(\d+)\.csv$', target_file_arg)
-        if not match:
-            print(f"[ERROR] Error: Could not extract timeframe from '{target_file_arg}'. Exiting.")
-            sys.exit(1)
-        
-        target_timeframe_num = match.group(1)
-        # Find all raw files that share this timeframe
-        files_to_consider = [f for f in all_raw_files if f.endswith(f"{target_timeframe_num}.csv")]
-        print(f"Found {len(files_to_consider)} files matching the '{target_timeframe_num}m' timeframe.")
-    else:
-        # --- Discovery Mode (Default) ---
-        print("[SCAN] Discovery Mode: Scanning for all new raw files to prepare...")
-        files_to_consider = all_raw_files
-
-    # --- Identify Markets That Need Processing ---
-    # This makes the script resumable by only processing new or missing files.
-    markets_to_process = []
-    for f in files_to_consider:
-        market_name = f.replace('.csv', '')
-        # Check if the FINAL output already exists. This makes the script resumable.
-        output_gold_path = os.path.join(prepared_data_dir, f"{market_name}_gold.parquet")
-        if not os.path.exists(output_gold_path):
-            markets_to_process.append(f)
-    
-    if not markets_to_process:
-        print("[SUCCESS] All necessary market data is already prepared. Nothing to do.")
-        sys.exit(0)
-
-    print(f"Found {len(markets_to_process)} new market(s) to prepare.")
-    
-    # --- Fit a Consistent Scaler ---
-    # The first market in the list is used as the "base" to fit the StandardScaler.
-    # This ensures consistency across all datasets.
-    print("\nFitting scaler on the first market to ensure consistent scaling...")
-    base_raw_df = robust_read_csv(os.path.join(raw_dir, markets_to_process[0]))
-    base_silver_df = add_all_market_features(base_raw_df.copy()).iloc[INDICATOR_WARMUP_PERIOD:].reset_index(drop=True)
-    _, scaler = create_gold_features(base_silver_df.copy())
-    print("[SUCCESS] Scaler fitted.")
-    
-    # --- Main Processing Loop ---
-    # Iterate through each new market and apply the full Silver -> Gold pipeline.
-    for market in tqdm(markets_to_process, desc="Preparing Market Data"):
-        market_name = market.replace('.csv', '')
-        output_silver_path = os.path.join(prepared_data_dir, f"{market_name}_silver.parquet")
-        output_gold_path = os.path.join(prepared_data_dir, f"{market_name}_gold.parquet")
-            
-        print(f"\nProcessing {market}...")
-        try:
-            # 1. Load raw data.
-            raw_df = robust_read_csv(os.path.join(raw_dir, market))
-            # 2. Generate Silver features.
-            silver_df = add_all_market_features(raw_df.copy()).iloc[INDICATOR_WARMUP_PERIOD:].reset_index(drop=True)
-            # 3. Generate Gold features using the pre-fitted scaler.
-            gold_df, _ = create_gold_features(silver_df.copy(), scaler=scaler)
-            
-            # 4. Save the final data to efficient Parquet files.
-            silver_df.to_parquet(output_silver_path)
-            gold_df.to_parquet(output_gold_path)
-            print(f"[SUCCESS] Prepared data for {market} saved.")
-        except Exception as e:
-            print(f"[ERROR] FAILED to process {market}. Error: {e}")
-            # In a full pipeline, we might want to stop here.
-            # For robustness, we'll just print the error and continue.
-            
-    print("\n" + "="*50 + "\n[SUCCESS] All market data preparation complete.")
+    main()
