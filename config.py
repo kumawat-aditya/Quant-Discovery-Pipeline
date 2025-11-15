@@ -1,0 +1,175 @@
+"""
+Central Configuration File for the Strategy Finder Pipeline.
+
+This file consolidates all user-configurable parameters and settings for every
+script in the project. By centralizing configuration, we ensure consistency,
+reduce redundancy, and make the entire system easier to manage and tune.
+"""
+
+import logging
+import numpy as np
+from multiprocessing import cpu_count
+
+# --- 1. GLOBAL EXECUTION & LOGGING SETTINGS ---
+# These settings apply to all scripts in the pipeline.
+
+# Set the number of CPU cores to use for parallel processing.
+# It's wise to leave 1 or 2 cores free for system stability.
+MAX_CPU_USAGE: int = max(1, cpu_count() - 2)
+
+# Directory for storing log files. This will be created in the project root.
+LOG_DIR: str = "logs"
+
+# The logging level for the console output.
+# Options: logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR
+CONSOLE_LOG_LEVEL = logging.INFO
+
+# The logging level for the file output.
+FILE_LOG_LEVEL = logging.DEBUG
+
+
+# --- 2. BRONZE LAYER CONFIGURATION ---
+# Settings specific to `bronze_data_generator.py`.
+
+# Defines how many candles are in each work package for the CPU cores.
+BRONZE_INPUT_CHUNK_SIZE: int = 5_000
+
+# Controls how many results are held in memory before writing to disk.
+# Larger values can be faster but use more RAM.
+BRONZE_OUTPUT_CHUNK_SIZE: int = 500_000
+
+# The expected column names for the raw input CSV files.
+# The script will use as many columns as are present in the file.
+RAW_DATA_COLUMNS: list[str] = ["time", "open", "high", "low", "close", "volume"]
+
+# A dictionary to define the estimated spread cost in pips for different instruments.
+# A "DEFAULT" value is used for any instrument not explicitly listed.
+SPREAD_PIPS: dict[str, float] = {
+    "DEFAULT": 3.0, "EURUSD": 1.5, "GBPUSD": 2.0, "AUDUSD": 2.5,
+    "USDJPY": 2.0, "USDCAD": 2.5, "XAUUSD": 20.0,
+}
+
+# The core simulation grid. Defines SL/TP ratios and the max trade holding
+# period (`MAX_LOOKFORWARD`) for different chart timeframes.
+TIMEFRAME_PRESETS: dict[str, dict] = {
+    "1m": {"SL_RATIOS": np.arange(0.0005, 0.0105, 0.0005), "TP_RATIOS": np.arange(0.0005, 0.0205, 0.0005), "MAX_LOOKFORWARD": 200},
+    "5m": {"SL_RATIOS": np.arange(0.001, 0.0155, 0.0005), "TP_RATIOS": np.arange(0.001, 0.0305, 0.0005), "MAX_LOOKFORWARD": 300},
+    "15m": {"SL_RATIOS": np.arange(0.002, 0.0255, 0.001), "TP_RATIOS": np.arange(0.002, 0.0505, 0.001), "MAX_LOOKFORWARD": 400},
+    "30m": {"SL_RATIOS": np.arange(0.003, 0.0355, 0.001), "TP_RATIOS": np.arange(0.003, 0.0705, 0.001), "MAX_LOOKFORWARD": 500},
+    "60m": {"SL_RATIOS": np.arange(0.005, 0.0505, 0.001), "TP_RATIOS": np.arange(0.005, 0.1005, 0.001), "MAX_LOOKFORWARD": 600},
+    "240m": {"SL_RATIOS": np.arange(0.010, 0.1005, 0.001), "TP_RATIOS": np.arange(0.010, 0.2005, 0.001), "MAX_LOOKFORWARD": 800},
+}
+
+
+# --- 3. SILVER LAYER CONFIGURATION ---
+# Settings specific to `silver_data_generator.py`.
+
+# The number of initial candles to discard to ensure indicator stability.
+# This should be >= the longest indicator period used.
+SILVER_INDICATOR_WARMUP_PERIOD: int = 200
+
+# The number of rows to read from the Bronze Parquet file in each batch during enrichment.
+SILVER_PARQUET_BATCH_SIZE: int = 500_000
+
+# --- Technical Indicator Parameters ---
+# These lists and values define the feature engineering space.
+SMA_PERIODS: list[int] = [20, 50, 100, 200]
+EMA_PERIODS: list[int] = [8, 13, 21, 50]
+BBANDS_PERIODS: list[int] = [20]
+RSI_PERIODS: list[int] = [14]
+ATR_PERIODS: list[int] = [14]
+ADX_PERIODS: list[int] = [14]
+BBANDS_STD_DEV: float = 2.0
+MACD_FAST: int = 12
+MACD_SLOW: int = 26
+MACD_SIGNAL: int = 9
+
+# The lookback window on each side for identifying fractal S/R points.
+PIVOT_WINDOW: int = 10
+
+# The rolling window sizes for calculating price action features (e.g., avg_body_last_10).
+PAST_LOOKBACKS: list[int] = [3, 5, 10, 20, 50]
+
+
+# --- 4. GOLD LAYER CONFIGURATION ---
+# Settings specific to `gold_data_generator.py`.
+
+# The size of the rolling window used for time-series standardization (scaling).
+# This prevents look-ahead bias by only using past data to scale each point.
+# A value of 200 means a point is scaled using the mean/std of the previous 200 points.
+GOLD_SCALER_ROLLING_WINDOW: int = 200
+
+
+
+# --- 5. PLATINUM LAYER CONFIGURATION ---
+# Settings for `platinum_preprocessor.py` and `platinum_strategy_discoverer.py`
+
+# -- Pre-Processor Settings --
+# The size of the bin in Basis Points for bucketing relational distance features.
+PLATINUM_BPS_BIN_SIZE: float = 5.0
+
+# The number of aggregated trade records to hold in memory before flushing to temp files.
+# Larger values are faster but use more RAM.
+PLATINUM_BUFFER_FLUSH_THRESHOLD: int = 2_000_000
+
+# The number of temporary shard files to use during the shuffle phase.
+# More shards can improve parallelism but may increase filesystem overhead.
+# A power of 2 is often a good choice.
+PLATINUM_NUM_SHARDS: int = 128
+
+# The prefix for temporary files created during the shuffle phase.
+PLATINUM_TEMP_SHARD_PREFIX: str = "_temp_shard_"
+
+# -- Strategy Discoverer Settings --
+# The minimum number of candles a blueprint must have appeared on to be considered for discovery.
+PLATINUM_MIN_CANDLE_LIMIT: int = 100
+
+# The maximum depth of the Decision Tree. Deeper trees can find more complex rules
+# but risk overfitting. 6-8 is often a good starting range.
+PLATINUM_DT_MAX_DEPTH: int = 7
+
+# The minimum number of historical candles a final rule must apply to.
+# This is a key parameter to prevent rules based on statistically insignificant samples.
+PLATINUM_MIN_CANDLES_PER_RULE: int = 50
+
+# A rule's average profitability must be this many times greater than the blueprint's
+# overall average profitability. Controls how much of an "edge" a rule must have.
+PLATINUM_DENSITY_LIFT_THRESHOLD: float = 1.5
+
+# The number of blueprints to process in a single batch by each worker process.
+PLATINUM_DISCOVERY_BATCH_SIZE: int = 20
+
+
+
+# --- 6. DIAMOND LAYER CONFIGURATION ---
+# Settings for all Diamond layer scripts (Prepper, Backtester, Validator).
+
+# (No specific settings are needed for the Prepper in this version,
+# but we are creating the section for future use. It will still use
+# the global MAX_CPU_USAGE setting.)
+
+
+
+# --- 6. DIAMOND LAYER CONFIGURATION ---
+# Settings for all Diamond layer scripts (Prepper, Backtester, Validator).
+
+# -- Backtester Settings --
+# Assumed spread in pips for cost calculation. This should be tailored to the instrument.
+# This is a dictionary to allow for instrument-specific spreads.
+DIAMOND_SPREAD_PIPS: dict[str, float] = {
+    "DEFAULT": 3.0, "EURUSD": 1.5, "GBPUSD": 2.0, "AUDUSD": 2.5,
+    "USDJPY": 2.0, "USDCAD": 2.5, "XAUUSD": 20.0,
+}
+
+# Assumed round-trip commission cost per standard lot (100,000 units).
+DIAMOND_COMMISSION_PER_LOT: float = 7.0
+
+# The maximum number of candles a trade will be held before being closed ('expired').
+DIAMOND_MAX_LOOKFORWARD: int = 500
+
+# --- Performance Filters for "Master Strategy" Status ---
+# These criteria define the minimum quality for a strategy to pass the backtest.
+DIAMOND_MIN_PROFIT_FACTOR: float = 1.5
+DIAMOND_MAX_DRAWDOWN_PCT: float = 20.0
+DIAMOND_MIN_TOTAL_TRADES: int = 50
+DIAMOND_MIN_SQN: float = 1.8

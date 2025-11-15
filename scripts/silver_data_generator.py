@@ -1,5 +1,4 @@
-# silver_data_generator.py (V3.0 - Refactored & Hardened)
-# silver_data_generator.py (V4.0 - Final Polish & Documentation)
+# silver_data_generator.py (V5.0 - Central Config, Logging & Parquet Output)
 
 """
 Silver Layer: The Enrichment Engine
@@ -29,13 +28,14 @@ The script operates in two main stages for each financial instrument:
 """
 
 import gc
+import logging
 import math
 import os
 import shutil
 import sys
 import time
 import traceback
-from multiprocessing import Manager, Pool, cpu_count
+from multiprocessing import Manager, Pool
 from typing import Dict, List, Tuple
 
 import numba
@@ -48,38 +48,37 @@ try:
     import pyarrow as pa
     import pyarrow.parquet as pq
 except ImportError:
-    print("[FATAL] 'pyarrow' library not found. Please run 'pip install pyarrow'.")
+    logging.critical("'pyarrow' library not found. Please run 'pip install pyarrow'.")
     sys.exit(1)
 try:
     import ta
 except ImportError:
-    print("[FATAL] 'ta' library not found. Please run 'pip install ta'.")
+    logging.critical("'ta' library not found. Please run 'pip install ta'.")
     sys.exit(1)
 try:
     import talib
 except ImportError:
-    print("[FATAL] 'talib' library not found. Please see library documentation for installation instructions.")
+    logging.critical("'talib' library not found. See library docs for installation.")
     sys.exit(1)
 
+# --- PROJECT-LEVEL IMPORTS ---
+# ### <<< CHANGE: Added logic to import from central config and logger.
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(SCRIPT_DIR))
 
-# --- GLOBAL CONFIGURATION ---
-MAX_CPU_USAGE: int = max(1, cpu_count() - 2)
-PARQUET_BATCH_SIZE: int = 500_000
-INDICATOR_WARMUP_PERIOD: int = 200
+try:
+    import config
+    from scripts.logger_setup import setup_logging
+except ImportError as e:
+    logging.critical(f"Failed to import project modules. Ensure config.py and logger_setup.py are accessible: {e}")
+    sys.exit(1)
 
-# --- TECHNICAL INDICATOR PARAMETERS ---
-SMA_PERIODS: List[int] = [20, 50, 100, 200]
-EMA_PERIODS: List[int] = [8, 13, 21, 50]
-BBANDS_PERIODS: List[int] = [20]
-RSI_PERIODS: List[int] = [14]
-ATR_PERIODS: List[int] = [14]
-ADX_PERIODS: List[int] = [14]
-BBANDS_STD_DEV: float = 2.0
-MACD_FAST: int = 12
-MACD_SLOW: int = 26
-MACD_SIGNAL: int = 9
-PIVOT_WINDOW: int = 10
-PAST_LOOKBACKS: List[int] = [3, 5, 10, 20, 50]
+# Initialize logger for this module
+logger = logging.getLogger(__name__)
+
+# ### <<< CHANGE: All configuration is now sourced from config.py.
+# The previous "GLOBAL CONFIGURATION" and "TECHNICAL INDICATOR PARAMETERS" sections
+# have been removed from this script.
 
 # --- WORKER-SPECIFIC GLOBAL VARIABLES ---
 worker_feature_values_np: np.ndarray
@@ -116,9 +115,9 @@ def robust_read_csv(filepath: str) -> pd.DataFrame:
     """Reads raw OHLC CSV data reliably, handling format inconsistencies."""
     df = pd.read_csv(filepath, sep=None, engine="python", header=None)
     if df.shape[1] >= 6:
-        df.columns = ['time', 'open', 'high', 'low', 'close', 'volume'][:df.shape[1]]
+        df.columns = config.RAW_DATA_COLUMNS[:df.shape[1]]
     elif df.shape[1] == 5:
-        df.columns = ['time', 'open', 'high', 'low', 'close']
+        df.columns = config.RAW_DATA_COLUMNS[:5]
         df['volume'] = 1
     else:
         raise ValueError(f"File '{os.path.basename(filepath)}' has fewer than 5 columns.")
@@ -130,7 +129,7 @@ def robust_read_csv(filepath: str) -> pd.DataFrame:
     initial_rows = len(df)
     df.dropna(subset=['time'] + numeric_cols, inplace=True)
     if len(df) < initial_rows:
-        print(f"    [WARN] Dropped {initial_rows - len(df)} rows with invalid date or price data.")
+        logger.warning(f"Dropped {initial_rows - len(df)} rows with invalid date or price data.")
         
     return df.sort_values('time').reset_index(drop=True)
 
@@ -142,17 +141,16 @@ def _calculate_s_r_numba(lows: np.ndarray, highs: np.ndarray, window: int) -> Tu
     for i in range(window, n - window):
         ws = slice(i - window, i + window + 1)
         if lows[i] == np.min(lows[ws]): support[i] = lows[i]
-        if highs[i] == np.max(highs[ws]): resistance[i] = highs[i]
+        if highs[i] == np.max( highs[ws]): resistance[i] = highs[i]
     return support, resistance
 
 def add_support_resistance(df: pd.DataFrame) -> pd.DataFrame:
     """Calculates and adds forward-filled S/R levels to the DataFrame."""
     lows, highs = df["low"].values.astype(np.float32), df["high"].values.astype(np.float32)
-    support_pts, resistance_pts = _calculate_s_r_numba(lows, highs, PIVOT_WINDOW)
+    support_pts, resistance_pts = _calculate_s_r_numba(lows, highs, config.PIVOT_WINDOW)
     df["support"] = pd.Series(support_pts, index=df.index).ffill()
     df["resistance"] = pd.Series(resistance_pts, index=df.index).ffill()
     return df
-
 
 def map_market_sessions(hour_series: pd.Series) -> pd.Series:
     """
@@ -183,56 +181,40 @@ def map_market_sessions(hour_series: pd.Series) -> pd.Series:
     # Use pd.cut to efficiently categorize each hour into its respective session.
     return pd.cut(hour_series, bins=bins, labels=labels, ordered=False, right=True)
 
-
-### <<< NEW FUNCTION: Part of the `add_all_market_features` refactor.
 def _add_standard_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """Calculates a batch of standard technical indicators."""
     indicator_df = pd.DataFrame(index=df.index)
-    # Calculate SMAs for defined periods.
-    for p in SMA_PERIODS:
+    for p in config.SMA_PERIODS:
         indicator_df[f"SMA_{p}"] = ta.trend.SMAIndicator(df["close"], p).sma_indicator()
-    # Calculate EMAs for defined periods.
-    for p in EMA_PERIODS:
+    for p in config.EMA_PERIODS:
         indicator_df[f"EMA_{p}"] = ta.trend.EMAIndicator(df["close"], p).ema_indicator()
-    # Calculate Bollinger Bands for defined periods and standard deviations.
-    for p in BBANDS_PERIODS:
-        bb = ta.volatility.BollingerBands(df["close"], p, BBANDS_STD_DEV)
+    for p in config.BBANDS_PERIODS:
+        bb = ta.volatility.BollingerBands(df["close"], p, config.BBANDS_STD_DEV)
         indicator_df[f"BB_upper_{p}"] = bb.bollinger_hband()
         indicator_df[f"BB_lower_{p}"] = bb.bollinger_lband()
-    # Calculate RSI for defined periods.
-    for p in RSI_PERIODS:
+    for p in config.RSI_PERIODS:
         indicator_df[f"RSI_{p}"] = ta.momentum.RSIIndicator(df["close"], p).rsi()
-    # Calculate MACD histogram.
-    indicator_df[f"MACD_hist_{MACD_FAST}_{MACD_SLOW}_{MACD_SIGNAL}"] = ta.trend.MACD(df["close"], MACD_SLOW, MACD_FAST, MACD_SIGNAL).macd_diff()
-    # Calculate ATR for defined periods.
-    for p in ATR_PERIODS:
+    indicator_df[f"MACD_hist_{config.MACD_FAST}_{config.MACD_SLOW}_{config.MACD_SIGNAL}"] = ta.trend.MACD(df["close"], config.MACD_SLOW, config.MACD_FAST, config.MACD_SIGNAL).macd_diff()
+    for p in config.ATR_PERIODS:
         indicator_df[f"ATR_{p}"] = ta.volatility.AverageTrueRange(df["high"], df["low"], df["close"], p).average_true_range()
-    # Calculate ADX for defined periods.
-    for p in ADX_PERIODS:
+    for p in config.ADX_PERIODS:
         indicator_df[f"ADX_{p}"] = ta.trend.ADXIndicator(df["high"], df["low"], df["close"], p).adx()
-    # Calculate Rate of Change (Momentum).
     indicator_df["MOM_10"] = ta.momentum.ROCIndicator(df["close"], window=10).roc()
-    # Calculate Commodity Channel Index.
     indicator_df["CCI_20"] = ta.trend.CCIIndicator(df["high"], df["low"], df["close"], window=20).cci()
-    
-    # Calculate ATR-based price levels for dynamic support/resistance.
-    for p in ATR_PERIODS:
+    for p in config.ATR_PERIODS:
         atr_series = indicator_df[f"ATR_{p}"]
         indicator_df[f"ATR_level_up_1x_{p}"] = df["close"] + atr_series
         indicator_df[f"ATR_level_down_1x_{p}"] = df["close"] - atr_series
     return indicator_df
 
-### <<< NEW FUNCTION: Part of the `add_all_market_features` refactor.
 def _add_candlestick_patterns(df: pd.DataFrame) -> pd.DataFrame:
     """Calculates a batch of TA-Lib candlestick pattern recognitions."""
     pattern_names = talib.get_function_groups().get("Pattern Recognition", [])
     patterns_df = pd.DataFrame(index=df.index)
-    # Calculate each candlestick pattern recognized by TA-Lib.
     for p in pattern_names:
         patterns_df[p] = getattr(talib, p)(df["open"], df["high"], df["low"], df["close"])
     return patterns_df
 
-### <<< NEW FUNCTION: Part of the `add_all_market_features` refactor.
 def _add_time_and_pa_features(df: pd.DataFrame, indicator_df: pd.DataFrame) -> pd.DataFrame:
     """Calculates time-based, price-action, and market regime features."""
     pa_df = pd.DataFrame(index=df.index)
@@ -243,46 +225,27 @@ def _add_time_and_pa_features(df: pd.DataFrame, indicator_df: pd.DataFrame) -> p
     # Calculate price action features like bullishness and body size.
     is_bullish = (df['close'] > df['open']).astype(int)
     body_size = np.abs(df['close'] - df['open'])
-    # Calculate rolling means for bullish ratio, average body size, and average range.
-    for n in PAST_LOOKBACKS:
+    for n in config.PAST_LOOKBACKS:
         pa_df[f'bullish_ratio_last_{n}'] = is_bullish.rolling(n).mean()
         pa_df[f'avg_body_last_{n}'] = body_size.rolling(n).mean()
         pa_df[f'avg_range_last_{n}'] = (df['high'] - df['low']).rolling(n).mean()
-        
-    # Classify market regime based on ADX (trend) and ATR (volatility).
-    # These depend on the indicator_df calculated in Batch 1, so it must be available.
-    for p in ADX_PERIODS:
+    for p in config.ADX_PERIODS:
         pa_df[f'trend_regime_{p}'] = np.where(indicator_df[f'ADX_{p}'] > 25, 'trend', 'range')
-    for p in ATR_PERIODS:
+    for p in config.ATR_PERIODS:
         pa_df[f'vol_regime_{p}'] = np.where(indicator_df[f'ATR_{p}'] > indicator_df[f'ATR_{p}'].rolling(50).mean(), 'high_vol', 'low_vol')
     return pa_df
 
-### <<< REFACTORED FUNCTION: Now acts as a clean orchestrator.
 def add_all_market_features(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Orchestrates the calculation of a comprehensive suite of market features.
-    
-    This function calls specialized helpers to generate features in logical
-    batches and then efficiently concatenates them into a final master DataFrame.
-    """
-    print("  - Calculating standard indicators...")
+    """Orchestrates the calculation of a comprehensive suite of market features."""
+    logger.info("  - Calculating standard indicators...")
     indicator_df = _add_standard_indicators(df)
-    
-    print("  - Calculating candlestick patterns...")
+    logger.info("  - Calculating candlestick patterns...")
     patterns_df = _add_candlestick_patterns(df)
-    
-    print("  - Calculating support and resistance...")
-    df_with_sr = add_support_resistance(df.copy()) # Use a copy to avoid side effects
-    
-    print("  - Calculating time-based and price-action features...")
+    logger.info("  - Calculating support and resistance...")
+    df_with_sr = add_support_resistance(df.copy())
+    logger.info("  - Calculating time-based and price-action features...")
     pa_df = _add_time_and_pa_features(df, indicator_df)
-
-    # Perform a single, efficient concatenation.
-    return pd.concat([
-        df, indicator_df, patterns_df, 
-        df_with_sr[['support', 'resistance']], pa_df
-    ], axis=1)
-
+    return pd.concat([df, indicator_df, patterns_df, df_with_sr[['support', 'resistance']], pa_df], axis=1)
 
 def create_feature_lookup_structures(
     features_df: pd.DataFrame, level_cols: List[str]
@@ -306,7 +269,6 @@ def add_positioning_features(
     bronze_chunk = bronze_chunk.loc[valid_mask].copy()
     indices = indices[valid_mask].astype(int)
     features_for_chunk_np = feature_values_np[indices]
-
     sl_prices, tp_prices = bronze_chunk['sl_price'].values, bronze_chunk['tp_price'].values
     candle_close_price = features_for_chunk_np[:, col_to_idx['close']]
 
@@ -336,18 +298,14 @@ def queue_worker(task_queue) -> int:
             if task is None: break
             chunk_df, chunk_num = task
             if chunk_df.empty: continue
-            enriched = add_positioning_features(
-                chunk_df, worker_feature_values_np, worker_time_to_idx_lookup,
-                worker_col_to_idx, worker_levels_for_positioning
-            )
+            enriched = add_positioning_features(chunk_df, worker_feature_values_np, worker_time_to_idx_lookup, worker_col_to_idx, worker_levels_for_positioning)
             if not enriched.empty:
                 enriched = downcast_dtypes(enriched)
                 path = os.path.join(worker_chunked_outcomes_dir, f"chunk_{chunk_num}.parquet")
                 enriched.to_parquet(path, index=False)
                 total += len(enriched)
         except Exception:
-            print(f"\n[WORKER ERROR] An error occurred in a worker process.")
-            traceback.print_exc()
+            logger.error(f"An error occurred in a worker process.", exc_info=True)
     return total
 
 def _get_level_columns(all_columns: List[str]) -> Tuple[List[str], List[str]]:
@@ -363,11 +321,8 @@ def _get_level_columns(all_columns: List[str]) -> Tuple[List[str], List[str]]:
 
 # --- MAIN ORCHESTRATOR ---
 def create_silver_data(
-    raw_path: str,
-    features_path: str,
-    bronze_path: str = None,
-    chunked_outcomes_dir: str = None,
-    features_only: bool = False
+    raw_path: str, features_path: str, bronze_path: str = None,
+    chunked_outcomes_dir: str = None, features_only: bool = False
 ) -> None:
     """
     Orchestrates the Silver Layer generation process. Can run in two modes:
@@ -375,83 +330,81 @@ def create_silver_data(
     2. Features Only Mode: Only generates the Silver features file.
     """
     instrument_name = os.path.splitext(os.path.basename(raw_path))[0]
-    print(f"\n{'='*30}\nProcessing: {instrument_name}\n{'='*30}")
+    logger.info(f"--- Processing: {instrument_name} ---")
 
-    # --- Stage 1: Market Feature Generation (Always runs) ---
-    print("STEP 1: Creating Silver Features dataset...")
+    # --- Stage 1: Market Feature Generation ---
+    logger.info("STEP 1: Creating Silver Features dataset...")
     raw_df = robust_read_csv(raw_path)
-    if len(raw_df) < INDICATOR_WARMUP_PERIOD + 100:
-        print(f"[ERROR] Not enough data for indicator warmup ({len(raw_df)} rows). Skipping.")
+    if len(raw_df) < config.SILVER_INDICATOR_WARMUP_PERIOD + 100:
+        logger.error(f"Not enough data for indicator warmup ({len(raw_df)} rows). Skipping.")
         return
         
     features_df = add_all_market_features(raw_df)
     del raw_df; gc.collect()
     
-    features_df = features_df.iloc[INDICATOR_WARMUP_PERIOD:].reset_index(drop=True)
+    features_df = features_df.iloc[config.SILVER_INDICATOR_WARMUP_PERIOD:].reset_index(drop=True)
     features_df = downcast_dtypes(features_df)
     
     os.makedirs(os.path.dirname(features_path), exist_ok=True)
-    features_df.to_csv(features_path, index=False)
-    print(f"[SUCCESS] Silver Features saved to: {os.path.basename(features_path)}")
+    # ### <<< CHANGE: Output format is now Parquet for better performance.
+    features_df.to_parquet(features_path, index=False)
+    logger.info(f"SUCCESS: Silver Features saved to: {os.path.basename(features_path)}")
     
-    # ### <<< CHANGE: Conditional exit for --features-only mode.
     if features_only:
-        print("[INFO] Features-only mode complete.")
-        return # --- EXIT EARLY ---
+        logger.info("Features-only mode complete.")
+        return
 
-    # --- Stage 2 & 3: Trade Enrichment (Skipped in features-only mode) ---
-    print("\nSTEP 2: Preparing for PARALLEL chunk enrichment...")
+    # --- Stage 2 & 3: Trade Enrichment ---
+    logger.info("STEP 2: Preparing for PARALLEL chunk enrichment...")
     if os.path.exists(chunked_outcomes_dir): shutil.rmtree(chunked_outcomes_dir)
     os.makedirs(chunked_outcomes_dir)
     
-    print("  - Creating feature lookup structures for fast processing...")
+    logger.info("  - Creating feature lookup structures for fast processing...")
     cols_for_numpy, levels_for_pos = _get_level_columns(features_df.columns)
     lookup_df = features_df[['time'] + cols_for_numpy]
     feature_values_np, time_to_idx, col_to_idx = create_feature_lookup_structures(lookup_df, cols_for_numpy)
     del features_df, lookup_df; gc.collect()
-    print("[SUCCESS] Lookup structures created.")
+    logger.info("SUCCESS: Lookup structures created.")
 
-    print("\nSTEP 3: Enriching Bronze data...")
+    logger.info("STEP 3: Enriching Bronze data...")
     try:
         pq_file = pq.ParquetFile(bronze_path)
         num_rows = pq_file.metadata.num_rows
     except Exception as e:
-        print(f"[ERROR] Could not read Bronze Parquet file at {bronze_path}: {e}")
+        logger.error(f"Could not read Bronze Parquet file at {bronze_path}: {e}")
         return
         
     if num_rows <= 0:
-        print("[INFO] Bronze file is empty. No trades to process.")
+        logger.info("Bronze file is empty. No trades to process.")
         return
 
-    print(f"Found {num_rows:,} trades. Processing in batches...")
+    logger.info(f"Found {num_rows:,} trades. Processing in batches...")
     manager = Manager()
-    task_queue = manager.Queue(maxsize=MAX_CPU_USAGE * 2)
+    task_queue = manager.Queue(maxsize=config.MAX_CPU_USAGE * 2)
     pool_init_args = (feature_values_np, time_to_idx, col_to_idx, levels_for_pos, chunked_outcomes_dir)
 
-    with Pool(processes=MAX_CPU_USAGE, initializer=init_worker, initargs=pool_init_args) as pool:
-        worker_results = [pool.apply_async(queue_worker, (task_queue,)) for _ in range(MAX_CPU_USAGE)]
-        iterator = pq_file.iter_batches(batch_size=PARQUET_BATCH_SIZE)
+    with Pool(processes=config.MAX_CPU_USAGE, initializer=init_worker, initargs=pool_init_args) as pool:
+        worker_results = [pool.apply_async(queue_worker, (task_queue,)) for _ in range(config.MAX_CPU_USAGE)]
+        iterator = pq_file.iter_batches(batch_size=config.SILVER_PARQUET_BATCH_SIZE)
         
-        for i, batch in enumerate(tqdm(iterator, desc="Feeding Batches to Workers"), 1):
-            chunk_df = batch.to_pandas()
-            task_queue.put((chunk_df, i))
+        for i, batch in enumerate(tqdm(iterator, desc="Feeding Batches", unit="batch"), 1):
+            task_queue.put((batch.to_pandas(), i))
             
-        for _ in range(MAX_CPU_USAGE): task_queue.put(None)
+        for _ in range(config.MAX_CPU_USAGE): task_queue.put(None)
         total_trades_processed = sum(res.get() for res in worker_results)
 
-    print(f"\n[SUCCESS] Enriched and chunked {total_trades_processed:,} trades.")
-    print(f"Output saved to: {chunked_outcomes_dir}")
+    logger.info(f"SUCCESS: Enriched and chunked {total_trades_processed:,} trades.")
+    logger.info(f"Output saved to: {chunked_outcomes_dir}")
 
 def _select_files_interactively(bronze_dir: str, silver_out_dir: str) -> List[str]:
     """Scans for new files and prompts the user to select which ones to process."""
-    print("[INFO] Interactive Mode: Scanning for new files...")
+    logger.info("Interactive Mode: Scanning for new files...")
     try:
-        # ### <<< CHANGE: Look for .parquet files from the Bronze layer.
         bronze_files = sorted([f for f in os.listdir(bronze_dir) if f.endswith('.parquet')])
         new_files = [f for f in bronze_files if not os.path.exists(os.path.join(silver_out_dir, f.replace('.parquet', '')))]
 
         if not new_files:
-            print("[INFO] No new Bronze files to process.")
+            logger.info("No new Bronze files to process.")
             return []
 
         print("\n--- Select File(s) to Process ---")
@@ -467,98 +420,90 @@ def _select_files_interactively(bronze_dir: str, silver_out_dir: str) -> List[st
         try:
             indices = [int(i.strip()) - 1 for i in user_input.split(',')]
             for idx in indices:
-                if 0 <= idx < len(new_files):
-                    selected_files.append(new_files[idx])
-                else:
-                    print(f"[WARN] Invalid selection '{idx + 1}' ignored.")
+                if 0 <= idx < len(new_files): selected_files.append(new_files[idx])
+                else: logger.warning(f"Invalid selection '{idx + 1}' ignored.")
             return sorted(list(set(selected_files)))
         except ValueError:
-            print("[ERROR] Invalid input. Please enter numbers (e.g., 1,3) or 'a'.")
+            logger.error("Invalid input. Please enter numbers (e.g., 1,3) or 'a'.")
             return []
-            
     except FileNotFoundError:
-        print(f"[ERROR] The Bronze data directory was not found at: {bronze_dir}")
+        logger.error(f"The Bronze data directory was not found at: {bronze_dir}")
         return []
-            
-    except FileNotFoundError:
-        print(f"[ERROR] The Bronze data directory was not found at: {bronze_dir}")
-        return []
-
 
 def main() -> None:
-    """Main execution function: handles file discovery, user interaction, and orchestration."""
+    """Main execution function."""
+    PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+    LOGS_DIR = os.path.join(PROJECT_ROOT, config.LOG_DIR)
+    setup_logging(LOGS_DIR, config.CONSOLE_LOG_LEVEL, config.FILE_LOG_LEVEL)
+    
     start_time = time.time()
-    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-    RAW_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'raw_data'))
-    BRONZE_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'bronze_data'))
-    SILVER_DATA_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'silver_data'))
+    RAW_DIR = os.path.join(PROJECT_ROOT, 'raw_data')
+    BRONZE_DIR = os.path.join(PROJECT_ROOT, 'bronze_data')
+    SILVER_DATA_DIR = os.path.join(PROJECT_ROOT, 'silver_data')
     FEATURES_DIR = os.path.join(SILVER_DATA_DIR, 'features')
     CHUNKED_OUTCOMES_DIR = os.path.join(SILVER_DATA_DIR, 'chunked_outcomes')
     os.makedirs(FEATURES_DIR, exist_ok=True)
     os.makedirs(CHUNKED_OUTCOMES_DIR, exist_ok=True)
 
-    print("--- Silver Layer: The Enrichment Engine (Parquet Edition) ---")
+    logger.info("--- Silver Layer: The Enrichment Engine (Parquet Edition) ---")
 
-    # ### <<< CHANGE: Check for the --features-only flag.
     features_only_mode = '--features-only' in sys.argv
     target_file_arg = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith('--') else None
     
     if features_only_mode:
-        print("[INFO] Running in FEATURES-ONLY mode.")
+        logger.info("Running in FEATURES-ONLY mode.")
         if not target_file_arg:
-            print("[ERROR] --features-only mode requires a target file argument (e.g., python silver...py EURUSD15.csv --features-only).")
+            logger.error("--features-only mode requires a target .csv file argument.")
             return
         
-        # In features-only mode, we are working from raw data files.
         instrument_name = target_file_arg.replace('.csv', '')
         raw_path = os.path.join(RAW_DIR, target_file_arg)
         if not os.path.exists(raw_path):
-            print(f"[ERROR] Raw data file not found: {raw_path}")
+            logger.error(f"Raw data file not found: {raw_path}")
             return
             
         paths = {
             "raw_path": raw_path,
-            "features_path": os.path.join(FEATURES_DIR, f"{instrument_name}.csv"),
+            # ### <<< CHANGE: Path now points to a .parquet file.
+            "features_path": os.path.join(FEATURES_DIR, f"{instrument_name}.parquet"),
             "features_only": True
         }
         create_silver_data(**paths)
         
-    else: # --- Normal Mode (Full pipeline) ---
+    else: # --- Normal (Full) Mode ---
         if target_file_arg:
-            print(f"\n[INFO] Targeted Mode: Processing '{target_file_arg}'")
+            logger.info(f"Targeted Mode: Processing '{target_file_arg}'")
             if not target_file_arg.endswith('.parquet'): target_file_arg += '.parquet'
             files_to_process = [target_file_arg] if os.path.exists(os.path.join(BRONZE_DIR, target_file_arg)) else []
-            if not files_to_process: print(f"[ERROR] Target file not found in bronze_data: {target_file_arg}")
+            if not files_to_process: logger.error(f"Target file not found in bronze_data: {target_file_arg}")
         else:
             files_to_process = _select_files_interactively(BRONZE_DIR, CHUNKED_OUTCOMES_DIR)
 
         if not files_to_process:
-            print("\n[INFO] No files selected or found for processing. Exiting.")
+            logger.info("No files selected or found for processing. Exiting.")
         else:
-            print(f"\n[QUEUE] Queued {len(files_to_process)} file(s): {', '.join(files_to_process)}")
+            logger.info(f"Queued {len(files_to_process)} file(s): {', '.join(files_to_process)}")
             for filename in files_to_process:
                 instrument_name = filename.replace('.parquet', '')
                 raw_filename = f"{instrument_name}.csv"
                 paths = {
                     "bronze_path": os.path.join(BRONZE_DIR, filename),
                     "raw_path": os.path.join(RAW_DIR, raw_filename),
-                    "features_path": os.path.join(FEATURES_DIR, f"{instrument_name}.csv"),
+                    # ### <<< CHANGE: Path now points to a .parquet file.
+                    "features_path": os.path.join(FEATURES_DIR, f"{instrument_name}.parquet"),
                     "chunked_outcomes_dir": os.path.join(CHUNKED_OUTCOMES_DIR, instrument_name),
                     "features_only": False
                 }
                 if not os.path.exists(paths["raw_path"]):
-                    print(f"[WARN] SKIPPING {filename}: Corresponding raw_data file ('{raw_filename}') is missing.")
+                    logger.warning(f"SKIPPING {filename}: Corresponding raw_data file ('{raw_filename}') is missing.")
                     continue
                 try:
                     create_silver_data(**paths)
                 except Exception:
-                    print(f"\n[FATAL ERROR] A critical error occurred while processing {filename}.")
-                    traceback.print_exc()
+                    logger.critical(f"A fatal error occurred while processing {filename}.", exc_info=True)
 
     end_time = time.time()
-    print(f"\nSilver Layer generation finished. Total time: {end_time - start_time:.2f} seconds.")
+    logger.info(f"Silver Layer generation finished. Total time: {end_time - start_time:.2f} seconds.")
 
 if __name__ == "__main__":
-    # The helper functions being called are assumed to be defined above.
-    # We only show the main orchestrator function changes here.
     main()

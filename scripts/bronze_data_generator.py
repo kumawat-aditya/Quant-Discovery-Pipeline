@@ -1,4 +1,4 @@
-# bronze_data_generator.py (V15 - Final Polish & Documentation)
+# bronze_data_generator.py (V16 - Central Config & Logging)
 
 """
 Bronze Layer: The Possibility Engine
@@ -33,7 +33,8 @@ import os
 import re
 import sys
 import time
-from multiprocessing import Pool, cpu_count
+import logging
+from multiprocessing import Pool
 from typing import Dict, List, Optional, Tuple, Any
 
 import numpy as np
@@ -46,30 +47,25 @@ try:
     import pyarrow as pa
     import pyarrow.parquet as pq
 except ImportError:
-    print("[FATAL] 'pyarrow' library not found. Please run 'pip install pyarrow' to continue.")
+    # Use logging here, but setup hasn't run yet, so it will go to stderr
+    logging.critical("'pyarrow' library not found. Please run 'pip install pyarrow' to continue.")
     sys.exit(1)
 
+# --- PROJECT-LEVEL IMPORTS ---
+# Assumes config.py is in the parent directory of this script's location
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.dirname(SCRIPT_DIR))
 
-# --- GLOBAL CONFIGURATION ---
-MAX_CPU_USAGE: int = max(1, cpu_count() - 2)
-OUTPUT_CHUNK_SIZE: int = 500_000
-INPUT_CHUNK_SIZE: int = 5_000
+try:
+    import config
+    from scripts.logger_setup import setup_logging
+except ImportError as e:
+    logging.critical(f"Failed to import project modules. Ensure config.py and logger_setup.py are accessible: {e}")
+    sys.exit(1)
 
-# --- SPREAD CONFIGURATION ---
-SPREAD_PIPS: Dict[str, float] = {
-    "DEFAULT": 3.0, "EURUSD": 1.5, "GBPUSD": 2.0, "AUDUSD": 2.5,
-    "USDJPY": 2.0, "USDCAD": 2.5, "XAUUSD": 20.0,
-}
+# Initialize logger for this module
+logger = logging.getLogger(__name__)
 
-# --- TIMEFRAME PRESETS ---
-TIMEFRAME_PRESETS: Dict[str, Dict[str, Any]] = {
-    "1m": {"SL_RATIOS": np.arange(0.0005, 0.0105, 0.0005), "TP_RATIOS": np.arange(0.0005, 0.0205, 0.0005), "MAX_LOOKFORWARD": 200},
-    "5m": {"SL_RATIOS": np.arange(0.001, 0.0155, 0.0005), "TP_RATIOS": np.arange(0.001, 0.0305, 0.0005), "MAX_LOOKFORWARD": 300},
-    "15m": {"SL_RATIOS": np.arange(0.002, 0.0255, 0.001), "TP_RATIOS": np.arange(0.002, 0.0505, 0.001), "MAX_LOOKFORWARD": 400},
-    "30m": {"SL_RATIOS": np.arange(0.003, 0.0355, 0.001), "TP_RATIOS": np.arange(0.003, 0.0705, 0.001), "MAX_LOOKFORWARD": 500},
-    "60m": {"SL_RATIOS": np.arange(0.005, 0.0505, 0.001), "TP_RATIOS": np.arange(0.005, 0.1005, 0.001), "MAX_LOOKFORWARD": 600},
-    "240m": {"SL_RATIOS": np.arange(0.010, 0.1005, 0.001), "TP_RATIOS": np.arange(0.010, 0.2005, 0.001), "MAX_LOOKFORWARD": 800},
-}
 
 # --- WORKER-SPECIFIC GLOBAL VARIABLES ---
 worker_df: Optional[pd.DataFrame] = None
@@ -78,14 +74,14 @@ worker_spread_cost: Optional[float] = None
 worker_max_lookforward: Optional[int] = None
 
 
-def init_worker(df: pd.DataFrame, config: Dict, spread_cost: float, max_lookforward: int) -> None:
+def init_worker(df: pd.DataFrame, config_dict: Dict, spread_cost: float, max_lookforward: int) -> None:
     """Initializer for each worker process in the multiprocessing Pool."""
     global worker_df, worker_config, worker_spread_cost, worker_max_lookforward
     worker_df, worker_config, worker_spread_cost, worker_max_lookforward = \
-        df, config, spread_cost, max_lookforward
+        df, config_dict, spread_cost, max_lookforward
 
 
-# --- NUMBA-ACCELERATED CORE LOGIC ---
+# --- NUMBA-ACCELERATED CORE LOGIC (UNCHANGED) ---
 @njit
 def find_winning_trades_numba(
     close_prices: np.ndarray, high_prices: np.ndarray, low_prices: np.ndarray, timestamps: np.ndarray,
@@ -93,11 +89,11 @@ def find_winning_trades_numba(
     processing_limit: int
 ) -> List[Tuple]:
     """Executes the core trade simulation logic at high speed using Numba."""
+    # This core logic is identical to the previous version.
     all_profitable_trades = []
     for i in range(processing_limit):
         entry_price = close_prices[i]
         entry_time = timestamps[i]
-
         # --- Simulate BUY trades ---
         for sl_r in sl_ratios:
             for tp_r in tp_ratios:
@@ -110,7 +106,6 @@ def find_winning_trades_numba(
                         break
                     if low_prices[j] <= sl_price:
                         break
-
         # --- Simulate SELL trades ---
         for sl_r in sl_ratios:
             for tp_r in tp_ratios:
@@ -132,29 +127,29 @@ def get_config_from_filename(filename: str) -> Tuple[Optional[Dict], Optional[fl
     """Parses a filename to extract instrument and timeframe, returning the config."""
     match = re.search(r"([A-Z0-9_]+?)(\d+)\.csv$", filename, re.IGNORECASE)
     if not match:
-        print(f"[WARN] Could not parse timeframe or instrument from '{filename}'. Skipping.")
+        logger.warning(f"Could not parse timeframe or instrument from '{filename}'. Skipping.")
         return None, None
 
     instrument, timeframe_num = match.group(1).replace("_", ""), match.group(2)
     timeframe_key = f"{timeframe_num}m"
-    if timeframe_key not in TIMEFRAME_PRESETS:
-        print(f"[WARN] No preset for timeframe '{timeframe_key}' in '{filename}'. Skipping.")
+    if timeframe_key not in config.TIMEFRAME_PRESETS:
+        logger.warning(f"No preset for timeframe '{timeframe_key}' in '{filename}'. Skipping.")
         return None, None
 
-    print(f"[INFO] Config '{timeframe_key}' detected for {instrument.upper()}.")
+    logger.info(f"Config '{timeframe_key}' detected for {instrument.upper()}.")
     pip_size = 0.01 if "JPY" in instrument.upper() or "XAU" in instrument.upper() else 0.0001
-    spread_in_pips = SPREAD_PIPS.get(instrument.upper(), SPREAD_PIPS["DEFAULT"])
+    spread_in_pips = config.SPREAD_PIPS.get(instrument.upper(), config.SPREAD_PIPS["DEFAULT"])
     spread_cost = spread_in_pips * pip_size
-    print(f"   -> Instrument: {instrument.upper()} | Pip Size: {pip_size:.4f} | "
-          f"Spread: {spread_in_pips} pips ({spread_cost:.5f})")
-    return TIMEFRAME_PRESETS[timeframe_key], spread_cost
+    logger.info(f"   -> Instrument: {instrument.upper()} | Pip Size: {pip_size:.4f} | "
+                f"Spread: {spread_in_pips} pips ({spread_cost:.5f})")
+    return config.TIMEFRAME_PRESETS[timeframe_key], spread_cost
 
 
 def process_chunk_task(task_indices: Tuple[int, int]) -> List[Tuple]:
     """The "Producer" worker function, executed in parallel by the Pool."""
     start_index, end_index = task_indices
     df_slice = worker_df.iloc[start_index:end_index]
-    processing_limit = min(INPUT_CHUNK_SIZE, len(worker_df) - start_index)
+    processing_limit = min(config.BRONZE_INPUT_CHUNK_SIZE, len(worker_df) - start_index)
     processing_limit = min(processing_limit, len(df_slice) - worker_max_lookforward)
     if processing_limit <= 0: return []
 
@@ -176,8 +171,7 @@ def _create_df_from_results(data: List[Tuple]) -> pd.DataFrame:
     ])
     df['entry_time'] = pd.to_datetime(df['entry_time'], unit='ns')
     df['exit_time'] = pd.to_datetime(df['exit_time'], unit='ns')
-    df['trade_type'] = np.where(df['trade_type'] == 1, 'buy', 'sell')
-    df['trade_type'] = df['trade_type'].astype('category')
+    df['trade_type'] = np.where(df['trade_type'] == 1, 'buy', 'sell').astype('category')
     df['outcome'] = 'win'
     df['outcome'] = df['outcome'].astype('category')
     for col in df.select_dtypes(include=['float64']).columns:
@@ -187,54 +181,53 @@ def _create_df_from_results(data: List[Tuple]) -> pd.DataFrame:
 
 # --- MAIN PROCESSING ORCHESTRATOR ---
 def process_file_pipelined(
-    input_file: str, output_file: str, config: Dict, spread_cost: float
+    input_file: str, output_file: str, config_dict: Dict, spread_cost: float
 ) -> str:
     """Orchestrates data generation for a single file, writing to Parquet."""
     filename = os.path.basename(input_file)
-    print(f"\n[INFO] Starting pipelined processing for {filename}...")
+    logger.info(f"Starting pipelined processing for {filename}...")
     try:
         df = pd.read_csv(input_file, sep=None, engine="python", header=None)
-        if df.shape[1] < 5: return f"[ERROR] Invalid file format: Expected at least 5 columns."
-        df.columns = ["time", "open", "high", "low", "close", "volume"][:df.shape[1]]
+        if df.shape[1] < 5: return f"ERROR: Invalid file format: Expected at least 5 columns."
+        df.columns = config.RAW_DATA_COLUMNS[:df.shape[1]]
         
-        # ### <<< CHANGE: Added more robust data cleaning and validation.
         df['time'] = pd.to_datetime(df['time'], errors='coerce')
         numeric_cols = ["open", "high", "low", "close"]
         df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors='coerce')
         initial_rows = len(df)
         df.dropna(subset=['time'] + numeric_cols, inplace=True)
         if len(df) < initial_rows:
-            print(f"[WARN] Dropped {initial_rows - len(df)} rows with invalid data.")
+            logger.warning(f"Dropped {initial_rows - len(df)} rows with invalid data.")
         df = df.sort_values('time').reset_index(drop=True)
 
     except Exception as e:
-        return f"[ERROR] Failed to load or parse '{filename}': {e}"
+        return f"ERROR: Failed to load or parse '{filename}': {e}"
     
-    max_lookforward = config["MAX_LOOKFORWARD"]
+    max_lookforward = config_dict["MAX_LOOKFORWARD"]
     if len(df) <= max_lookforward:
-        return f"[ERROR] Not enough data to perform lookforward of {max_lookforward} candles."
+        return f"ERROR: Not enough data for lookforward of {max_lookforward} candles."
 
     if os.path.exists(output_file):
-        print(f"[WARN] Output file {os.path.basename(output_file)} already exists. Overwriting.")
+        logger.warning(f"Output file {os.path.basename(output_file)} already exists. Overwriting.")
         os.remove(output_file)
 
-    tasks = [(i, i + INPUT_CHUNK_SIZE + max_lookforward) for i in range(0, len(df), INPUT_CHUNK_SIZE)]
-    if not tasks: return "[INFO] No processable chunks found."
+    tasks = [(i, i + config.BRONZE_INPUT_CHUNK_SIZE + max_lookforward) for i in range(0, len(df), config.BRONZE_INPUT_CHUNK_SIZE)]
+    if not tasks: return "INFO: No processable chunks found."
 
     profitable_trades_accumulator = []
     total_trades_found = 0
     writer = None
 
-    # ### <<< CHANGE: Added a try...finally block to guarantee the writer is closed.
-    # This prevents corrupted/incomplete Parquet files if an error occurs mid-run.
     try:
-        pool_init_args = (df, config, spread_cost, max_lookforward)
-        with Pool(processes=MAX_CPU_USAGE, initializer=init_worker, initargs=pool_init_args) as pool:
+        pool_init_args = (df, config_dict, spread_cost, max_lookforward)
+        with Pool(processes=config.MAX_CPU_USAGE, initializer=init_worker, initargs=pool_init_args) as pool:
             results_iterator = pool.imap(process_chunk_task, tasks)
-            for results_list in tqdm(results_iterator, total=len(tasks), desc=f"Simulating Chunks for {filename}"):
+            # Wrap iterator with tqdm for the progress bar
+            progress_bar = tqdm(results_iterator, total=len(tasks), desc=f"Simulating Chunks for {filename}", unit="chunk")
+            for results_list in progress_bar:
                 if results_list:
                     profitable_trades_accumulator.extend(results_list)
-                if len(profitable_trades_accumulator) >= OUTPUT_CHUNK_SIZE:
+                if len(profitable_trades_accumulator) >= config.BRONZE_OUTPUT_CHUNK_SIZE:
                     chunk_df = _create_df_from_results(profitable_trades_accumulator)
                     if not chunk_df.empty:
                         table = pa.Table.from_pandas(chunk_df, preserve_index=False)
@@ -264,21 +257,23 @@ def process_file_pipelined(
 
 def _select_files_interactively(raw_data_dir: str, bronze_data_dir: str) -> List[str]:
     """Scans for new files and prompts the user to select which ones to process."""
-    print("[INFO] Interactive Mode: Scanning for new files...")
+    logger.info("Interactive Mode: Scanning for new files...")
     try:
         all_raw_files = sorted([f for f in os.listdir(raw_data_dir) if f.endswith('.csv')])
         bronze_bases = {os.path.splitext(f)[0] for f in os.listdir(bronze_data_dir) if f.endswith('.parquet')}
         new_files = [f for f in all_raw_files if os.path.splitext(f)[0] not in bronze_bases]
 
         if not new_files:
-            print("[INFO] No new raw data files to process.")
+            logger.info("No new raw data files to process.")
             return []
 
+        # Use a direct print for user interaction prompts
         print("\n--- Select File(s) to Process ---")
         for i, f in enumerate(new_files): print(f"  [{i+1}] {f}")
         print("  [a] Process All New Files")
         print("\nEnter selection (e.g., 1,3 or a):")
         user_input = input("> ").strip().lower()
+
         if not user_input: return []
         if user_input == 'a': return new_files
 
@@ -287,60 +282,65 @@ def _select_files_interactively(raw_data_dir: str, bronze_data_dir: str) -> List
             indices = {int(i.strip()) - 1 for i in user_input.split(',')}
             for idx in sorted(indices):
                 if 0 <= idx < len(new_files): selected_files.append(new_files[idx])
-                else: print(f"[WARN] Invalid selection '{idx + 1}' ignored.")
+                else: logger.warning(f"Invalid selection '{idx + 1}' ignored.")
             return selected_files
         except ValueError:
-            print("[ERROR] Invalid input. Please enter numbers (e.g., 1,3) or 'a'.")
+            logger.error("Invalid input. Please enter numbers (e.g., 1,3) or 'a'.")
             return []
     except FileNotFoundError:
-        print(f"[ERROR] The raw data directory was not found at: {raw_data_dir}")
+        logger.error(f"The raw data directory was not found at: {raw_data_dir}")
         return []
 
 
 def main() -> None:
     """Main execution function."""
+    # --- Setup Logging ---
+    # The log directory is relative to the project root, which is one level above SCRIPT_DIR
+    PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+    LOGS_DIR = os.path.join(PROJECT_ROOT, config.LOG_DIR)
+    setup_logging(LOGS_DIR, config.CONSOLE_LOG_LEVEL, config.FILE_LOG_LEVEL)
+
     start_time = time.time()
-    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-    RAW_DATA_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'raw_data'))
-    BRONZE_DATA_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, '..', 'bronze_data'))
+    
+    RAW_DATA_DIR = os.path.join(PROJECT_ROOT, 'raw_data')
+    BRONZE_DATA_DIR = os.path.join(PROJECT_ROOT, 'bronze_data')
     os.makedirs(BRONZE_DATA_DIR, exist_ok=True)
 
-    print("--- Bronze Layer: The Possibility Engine (Parquet Edition) ---")
-    print(f"Using up to {MAX_CPU_USAGE} CPU cores for simulation.")
+    logger.info("--- Bronze Layer: The Possibility Engine (Parquet Edition) ---")
+    logger.info(f"Using up to {config.MAX_CPU_USAGE} CPU cores for simulation.")
     
-    print("[INFO] Initializing simulation engine (Numba JIT)...")
+    logger.info("Initializing simulation engine (Numba JIT)...")
+    # Numba JIT warmup
     find_winning_trades_numba(np.random.rand(10), np.random.rand(10), np.random.rand(10), np.random.randint(0, 10, 10, dtype=np.int64), np.random.rand(2), np.random.rand(2), 1, 0.0001, 10)
-    print("[SUCCESS] Engine is ready.")
+    logger.info("Engine is ready.")
 
     files_to_process = []
     target_file_arg = sys.argv[1] if len(sys.argv) > 1 else None
     if target_file_arg:
-        print(f"\n[INFO] Targeted Mode: Processing '{target_file_arg}'")
+        logger.info(f"Targeted Mode: Processing '{target_file_arg}'")
         if not os.path.exists(os.path.join(RAW_DATA_DIR, target_file_arg)):
-            print(f"[ERROR] Target file not found: {os.path.join(RAW_DATA_DIR, target_file_arg)}")
+            logger.error(f"Target file not found: {os.path.join(RAW_DATA_DIR, target_file_arg)}")
         else:
             files_to_process = [target_file_arg]
     else:
         files_to_process = _select_files_interactively(RAW_DATA_DIR, BRONZE_DATA_DIR)
 
     if not files_to_process:
-        print("\n[INFO] No files selected or found for processing. Exiting.")
+        logger.info("No files selected or found for processing. Exiting.")
     else:
-        print(f"\n[QUEUE] Queued {len(files_to_process)} file(s): {', '.join(files_to_process)}")
+        logger.info(f"Queued {len(files_to_process)} file(s): {', '.join(files_to_process)}")
         for filename in files_to_process:
-            config, spread_cost = get_config_from_filename(filename)
-            if config:
+            config_dict, spread_cost = get_config_from_filename(filename)
+            if config_dict:
                 input_path = os.path.join(RAW_DATA_DIR, filename)
                 output_path = os.path.join(BRONZE_DATA_DIR, filename.replace('.csv', '.parquet'))
-                result = process_file_pipelined(input_path, output_path, config, spread_cost)
-                print("\n" + "="*80)
-                print(f"SUMMARY FOR {filename}: {result}")
-                print("="*80)
+                result = process_file_pipelined(input_path, output_path, config_dict, spread_cost)
+                logger.info(f"SUMMARY FOR {filename}: {result}")
             else:
-                print(f"[ERROR] Could not generate configuration for {filename}. Skipping.")
+                logger.error(f"Could not generate configuration for {filename}. Skipping.")
 
     end_time = time.time()
-    print(f"\nBronze data generation finished. Total time: {end_time - start_time:.2f} seconds.")
+    logger.info(f"Bronze data generation finished. Total time: {end_time - start_time:.2f} seconds.")
 
 
 if __name__ == "__main__":
