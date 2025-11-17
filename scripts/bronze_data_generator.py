@@ -206,7 +206,13 @@ def process_file_pipelined(
         if df.shape[1] < 5: return f"ERROR: Invalid file format: Expected at least 5 columns."
         df.columns = config.RAW_DATA_COLUMNS[:df.shape[1]]
         
+        # Convert to datetime, coercing errors to NaT (Not a Time)
         df['time'] = pd.to_datetime(df['time'], errors='coerce')
+        # If timezone information exists, remove it.
+        if df['time'].dt.tz is not None:
+            logger.debug(f"Timezone '{df['time'].dt.tz}' detected. Localizing to None (UTC-naive).")
+            df['time'] = df['time'].dt.tz_localize(None)
+            
         numeric_cols = ["open", "high", "low", "close"]
         df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors='coerce')
         initial_rows = len(df)

@@ -123,6 +123,10 @@ def robust_read_csv(filepath: str) -> pd.DataFrame:
         raise ValueError(f"File '{os.path.basename(filepath)}' has fewer than 5 columns.")
 
     df['time'] = pd.to_datetime(df['time'], errors='coerce')
+    if df['time'].dt.tz is not None:
+        logger.debug(f"Timezone '{df['time'].dt.tz}' detected. Localizing to None (UTC-naive).")
+        df['time'] = df['time'].dt.tz_localize(None)
+        
     numeric_cols = ['open', 'high', 'low', 'close']
     df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors='coerce')
     

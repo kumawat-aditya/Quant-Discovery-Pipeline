@@ -160,7 +160,8 @@ def process_key_batch(task_tuple: Tuple[List[Tuple[str, str]], Dict[str, Set[str
     for key, target_path in key_paths_batch:
         try:
             target_df = pd.read_parquet(target_path)
-            target_df['time'] = pd.to_datetime(target_df['entry_time']).dt.tz_localize(None)
+            target_df['time'] = pd.to_datetime(target_df['entry_time'])
+            
             training_df = pd.merge(worker_gold_features_df, target_df[['time', 'trade_count']], on='time', how='inner')
             if training_df.empty: continue
 
@@ -208,8 +209,11 @@ def _ensure_paths_exist(paths: Dict[str, str]):
 def _load_all_data_sources(paths: Dict[str, str]) -> Tuple[pd.DataFrame, pd.DataFrame, Dict, Set]:
     """Loads all necessary data files for an instrument."""
     _ensure_paths_exist(paths)
+    
+    # ### <<< CHANGE: Removed .dt.tz_localize(None) >>>
     gold_df = pd.read_parquet(paths['gold'])
-    gold_df['time'] = pd.to_datetime(gold_df['time']).dt.tz_localize(None)
+    gold_df['time'] = pd.to_datetime(gold_df['time']) 
+    
     all_blueprints_df = pd.read_parquet(paths['combo'])
     
     exclusion_rules_by_key = defaultdict(set)

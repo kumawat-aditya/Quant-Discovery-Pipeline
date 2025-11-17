@@ -197,7 +197,7 @@ def extract_triggers_for_instrument(master_instrument: str, all_instruments: Lis
         gold_path = os.path.join(base_dirs['gold_features'], f"{instrument_to_scan}.parquet")
         try:
             gold_df = pd.read_parquet(gold_path)
-            gold_df['time'] = pd.to_datetime(gold_df['time']).dt.tz_localize(None)
+            gold_df['time'] = pd.to_datetime(gold_df['time'])
         except FileNotFoundError:
             logger.warning(f"Gold features file not found for {instrument_to_scan}. Skipping.")
             continue

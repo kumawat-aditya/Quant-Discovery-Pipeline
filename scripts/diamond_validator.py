@@ -169,7 +169,7 @@ def run_validator_for_instrument(master_instrument: str, base_dirs: Dict[str, st
         silver_path = os.path.join(base_dirs['silver_features'], f"{market}.parquet")
         try:
             silver_df = pd.read_parquet(silver_path)
-            silver_df['time'] = pd.to_datetime(silver_df['time']).dt.tz_localize(None)
+            silver_df['time'] = pd.to_datetime(silver_df['time'])
         except FileNotFoundError:
             logger.warning(f"Silver features not found for {market}. Skipping.")
             continue

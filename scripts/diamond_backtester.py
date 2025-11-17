@@ -162,7 +162,7 @@ def run_backtester_for_instrument(master_instrument: str, base_dirs: Dict[str, s
     silver_features_path = os.path.join(base_dirs['silver_features'], f"{master_instrument}.parquet")
     try:
         silver_df = pd.read_parquet(silver_features_path)
-        silver_df['time'] = pd.to_datetime(silver_df['time']).dt.tz_localize(None)
+        silver_df['time'] = pd.to_datetime(silver_df['time'])
     except FileNotFoundError:
         logger.error(f"Silver features file not found: {silver_features_path}")
         return
