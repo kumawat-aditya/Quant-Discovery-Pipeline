@@ -1,97 +1,87 @@
-# Bronze Layer: The Possibility Engine (`bronze_data_generator.py`)
+# Bronze Layer: The Possibility Engine
 
-This script is the first and most foundational step in the Strategy Finder pipeline. Its sole purpose is to perform a high-speed, brute-force simulation on raw historical price data to discover every conceivable "winning" trade. It generates a massive, unbiased dataset that serves as the foundation for all subsequent analysis and enrichment.
+This script, `bronze_data_generator.py`, serves as the foundational data generation layer for the entire quantitative trading strategy discovery pipeline. Its primary purpose is to systematically scan historical price data and generate a comprehensive dataset of _every conceivable winning trade_ based on a predefined grid of Stop-Loss (SL) and Take-Profit (TP) ratios.
 
-## 🎯 Purpose in the Pipeline
+This generated "universe of possibilities" acts as the bedrock for all subsequent analysis. The script operates by performing a brute-force simulation on every single candlestick, testing thousands of SL/TP combinations, and recording only those that would have resulted in a profitable outcome.
 
-The Bronze Layer acts as the **possibility engine**. Instead of testing predefined indicators, it works backward from the outcome. For every single candlestick in the input data, it asks: _"Given a grid of thousands of potential Stop Loss (SL) and Take Profit (TP) values, which combinations would have resulted in a winning trade?"_
+## Core Purpose
 
-This process creates a comprehensive "universe of possibilities" that will be filtered, enriched, and analyzed by the downstream layers.
+The goal of the Bronze layer is not to find strategies, but to create the raw material from which strategies will be mined. By pre-calculating every potential winning trade, we transform the problem from "what is a good trade?" to "what were the market conditions when all these good trades were possible?". This foundational dataset is essential for the feature enrichment and pattern recognition that occurs in the Silver and Platinum layers.
 
----
+## How It Works
 
-## ✨ Key Features
+1.  **Data Ingestion**: The script reads a raw OHLC (Open, High, Low, Close) price data file in `.csv` format from the `raw_data/` directory.
+2.  **Configuration Parsing**: It parses the input filename to determine the instrument and timeframe (e.g., `EURUSD60.csv` -> EURUSD, 60m). This information is used to load the correct simulation parameters (SL/TP grid, lookforward period, spread) from `config.py`.
+3.  **Brute-Force Simulation**: For _every single candlestick_ in the input file, the script performs the following actions:
+    - It simulates thousands of potential **BUY** trades, each with a unique SL/TP ratio combination from the configured grid.
+    - It simulates thousands of potential **SELL** trades in the same manner.
+    - For each simulated trade, it looks forward in time (up to the `MAX_LOOKFORWARD` limit) to determine the outcome.
+4.  **Outcome Recording**:
+    - If a simulated trade's Take-Profit price is hit _before_ its Stop-Loss price, the trade is considered a "winning possibility." Its details (entry time, trade type, entry price, SL/TP levels, exit time, etc.) are recorded.
+    - If the Stop-Loss is hit first, or if the trade remains open for the entire `MAX_LOOKFORWARD` period without hitting either level, it is discarded and not saved.
+5.  **Efficient Output**: The collected winning trades are written in large, efficient chunks to a **Parquet** file in the `bronze_data/` directory.
 
-- **High-Performance Simulation:** The core simulation loop is written in a restricted Python dialect and Just-In-Time (JIT) compiled to native machine code using **Numba**, achieving performance comparable to C or Fortran.
-- **Massively Parallel:** It leverages the `multiprocessing` library to utilize all available CPU cores (configurable via `MAX_CPU_USAGE`), processing multiple chunks of the input data simultaneously.
-- **Memory Safe:** By using a producer-consumer architecture with `pool.imap()`, the script can process gigabytes of historical data on a standard machine without running out of memory. Results are streamed to disk periodically.
-- **Efficient Parquet Output:** Results are saved in the Apache Parquet format. This columnar, binary format is significantly smaller on disk and dramatically faster for the Silver Layer to read compared to traditional CSV files.
-- **Chronologically Ordered Output:** Despite parallel processing, the output Parquet file is guaranteed to be sorted by entry time, which is essential for time-series integrity in later layers.
-- **Realistic Spread Simulation:** The script accounts for the bid-ask spread by incorporating a configurable `SPREAD_PIPS` cost into the Take-Profit calculations, ensuring more realistic results.
+## Key Architectural Features
 
----
+This script is engineered for high performance and stability to handle the computationally intensive task of simulating billions of trades.
 
-## ⚙️ How It Works: The Logic
+- **Parquet Output**: Data is saved in the highly efficient, columnar Parquet format, which is significantly faster for downstream scripts (like the Silver layer) to read and process compared to CSV.
+- **Numba JIT Compilation**: The core simulation logic (`find_winning_trades_numba`) is heavily accelerated with Numba's Just-In-Time compiler. This translates the Python simulation loop into machine code that runs at near-C language speeds, providing a massive performance boost.
+- **Parallel Processing (Producer-Consumer Model)**: The script utilizes a `multiprocessing.Pool` to maximize CPU usage. The main data is split into chunks, and multiple "producer" worker processes simulate trades in parallel. A single main process acts as a "consumer," collecting the results and writing them to disk.
+- **Memory Safety**: By using `pool.imap()` and a chunking/flushing mechanism, the script processes results as they are completed and writes them to disk periodically. This ensures that the system's RAM is not overwhelmed, preventing crashes even when processing very large datasets.
+- **Cross-Platform Stability**: It uses a robust worker initializer (`init_worker`) to share large, read-only data (the main price DataFrame) with worker processes. This avoids data serialization issues and is a stable pattern that works reliably across different operating systems, including Windows.
 
-1.  **File Discovery:** The script can be run in two modes:
-    - **Interactive Mode:** Scans the `/raw_data` directory and interactively prompts the user to select which new `.csv` files to process. It is smart enough to ignore files that already have a corresponding `.parquet` output in `/bronze_data`.
-    - **Targeted Mode:** Processes a single file specified as a command-line argument.
-2.  **Configuration Parsing:** It automatically detects the instrument (e.g., `EURUSD`) and timeframe (e.g., `15m`) from the filename and loads the appropriate simulation parameters (`SL_RATIOS`, `TP_RATIOS`, `MAX_LOOKFORWARD`) from the `TIMEFRAME_PRESETS`.
-3.  **Data Loading & Validation:** The raw CSV data is loaded into memory once and validated to ensure it has the correct format and contains no invalid data that would crash the simulation.
-4.  **Parallel Simulation (The "Producers"):**
-    - A pool of worker processes is created. Each worker is initialized with a read-only copy of the full dataset, avoiding slow data transfer between processes (a critical optimization).
-    - Each worker receives a chunk of data and executes the Numba-accelerated `find_winning_trades_numba` function, testing tens of thousands of SL/TP combinations for every candle.
-5.  **Sequential Writing (The "Consumer"):**
-    - The main process collects the results from the workers _in the correct order_.
-    - Once a memory buffer (`OUTPUT_CHUNK_SIZE`) is filled, the results are converted to a DataFrame and appended as a new "row group" to the output Parquet file using a `ParquetWriter`. This process is highly efficient and memory-safe.
+## Inputs and Outputs
 
----
+- **Input**: A single `.csv` file from `raw_data/`
 
-## 🛠️ Dependencies
+  - **Example Filename**: `EURUSD60.csv`
+  - **Required Columns**: `time`, `open`, `high`, `low`, `close`
 
-This script requires the **pyarrow** library to handle the Parquet file format. Install it via pip:
+- **Output**: A single `.parquet` file in `bronze_data/`
+  - **Example Filename**: `EURUSD60.parquet`
+  - **Schema (Columns)**:
+    - `entry_time`: Timestamp of the trade entry.
+    - `trade_type`: 'buy' or 'sell'.
+    - `entry_price`: The closing price of the entry candle.
+    - `sl_price`: The calculated Stop-Loss price.
+    - `tp_price`: The calculated Take-Profit price.
+    - `sl_ratio`: The Stop-Loss ratio used (e.g., 0.005 for 0.5%).
+    - `tp_ratio`: The Take-Profit ratio used (e.g., 0.01 for 1%).
+    - `exit_time`: Timestamp of the candle where the TP was hit.
+    - `outcome`: 'win' (always, by design).
 
-```bash
-pip install pyarrow
-```
+## Configuration
 
----
+The behavior of the Bronze layer is controlled by parameters in the central `config.py` file.
 
-## 🔧 Configuration
+- `MAX_CPU_USAGE`: Sets the number of CPU cores to use for parallel simulation.
+- `BRONZE_INPUT_CHUNK_SIZE`: Defines how many candles are in each work package sent to a CPU core.
+- `BRONZE_OUTPUT_CHUNK_SIZE`: Controls how many results are held in memory before being written to the Parquet file.
+- `RAW_DATA_COLUMNS`: Specifies the expected column names in the input CSV.
+- `TIMEFRAME_PRESETS`: This is the most critical setting. It defines the simulation grid (`SL_RATIOS`, `TP_RATIOS`) and the maximum trade duration (`MAX_LOOKFORWARD`) for different chart timeframes.
+- `SIMULATION_SPREAD_PIPS`: Defines the assumed spread cost for each instrument, which is factored into the Take-Profit price check.
 
-All key parameters can be tuned directly in the global configuration section at the top of the script:
+## How to Run the Script
 
-- `MAX_CPU_USAGE`: Set the number of CPU cores to use for simulation.
-- `OUTPUT_CHUNK_SIZE`: Controls how many results are held in memory before writing to disk. Larger values can be faster but use more RAM.
-- `INPUT_CHUNK_SIZE`: Defines how many candles are in each work package for the CPU cores.
-- `SPREAD_PIPS`: A dictionary to define the estimated spread cost in pips for different instruments.
-- `TIMEFRAME_PRESETS`: The core simulation grid. Here you can define the exact SL/TP ratios and the maximum trade holding period (`MAX_LOOKFORWARD`) for different chart timeframes.
+You can run the script in three ways:
 
----
+1.  **Via the Master Orchestrator (Recommended)**:
+    The `orchestrator.py` script will run this layer automatically as the first step in the full pipeline.
 
-## 🚀 Usage
+    ```bash
+    python orchestrator.py
+    ```
 
-Execute the script from the root directory of the project.
+2.  **Standalone (Interactive Mode)**:
+    Run the script directly without arguments. It will scan for new `.csv` files in `raw_data` (that don't have a corresponding `.parquet` file in `bronze_data`) and present an interactive menu for you to choose which file(s) to process.
 
-**1. Interactive Mode (Recommended):**
+    ```bash
+    python scripts/bronze_data_generator.py
+    ```
 
-The script will scan for new files and present a menu.
-
-````bash
-python scripts/bronze_data_generator.py```
-
-**2. Targeted Mode:**
-
-To process a specific file from the `/raw_data` directory, pass its name as an argument.
-
-```bash
-python scripts/bronze_data_generator.py EURUSD15.csv
-````
-
----
-
-## 📄 Output
-
-The script generates a `.parquet` file in the `/bronze_data/` directory with the same base name as the input file. This file contains every profitable trade found, with the following columns:
-
-| Column        | Data Type        | Description                                             |
-| :------------ | :--------------- | :------------------------------------------------------ |
-| `entry_time`  | `datetime64[ns]` | The timestamp when the trade was initiated.             |
-| `trade_type`  | `category`       | The direction of the trade (`buy` or `sell`).           |
-| `entry_price` | `float32`        | The price at which the trade was entered (close price). |
-| `sl_price`    | `float32`        | The calculated Stop Loss price level.                   |
-| `tp_price`    | `float32`        | The calculated Take Profit price level.                 |
-| `sl_ratio`    | `float32`        | The stop loss as a percentage of the entry price.       |
-| `tp_ratio`    | `float32`        | The take profit as a percentage of the entry price.     |
-| `exit_time`   | `datetime64[ns]` | The timestamp when the Take Profit level was hit.       |
-| `outcome`     | `category`       | The result of the trade (always `win` in this layer).   |
+3.  **Standalone (Targeted Mode)**:
+    Run the script with a specific filename as a command-line argument to process only that file.
+    ```bash
+    python scripts/bronze_data_generator.py EURUSD60.csv
+    ```

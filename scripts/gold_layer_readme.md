@@ -1,89 +1,84 @@
-# Gold Layer: The ML Preprocessor (`gold_data_generator.py`)
+# Gold Layer: The Machine Learning Preprocessor
 
-This script is the crucial bridge between human-readable market analysis and machine learning. Its sole purpose is to take the context-rich `.csv` feature files from the Silver Layer and transform them into a purely numerical, standardized, and ML-optimized dataset, which it saves in the efficient Parquet format.
+The script `gold_data_generator.py` represents the crucial final stage of data preparation in the pipeline. It acts as a specialized transformer, converting the human-readable, context-rich Silver `features` dataset into a purely numerical, normalized, and standardized Parquet file that is perfectly optimized for machine learning.
 
-## 🎯 Purpose in the Pipeline
+Its sole purpose is to "translate" market context into the mathematical language that ML models understand, ensuring the data is presented in a way that maximizes the model's ability to learn meaningful patterns.
 
-The Gold Layer acts as a specialized **translator**. Machine learning models, particularly tree-based models and neural networks, cannot interpret raw prices or text-based categories like "London Session". They require a strictly numerical, clean, and well-scaled dataset. This script performs the four essential preprocessing steps required to create such a dataset.
+## Core Purpose
 
-The output of this layer is the final set of "predictors" or "features" that will be fed into the Platinum Layer's machine learning model to discover trading rules.
+Machine learning models, particularly tree-based models like the one used in the Platinum layer, struggle with raw price data and categorical text. The Gold Layer solves this by performing several key transformations that make the data **scale-invariant**, **time-invariant**, and **purely numerical**. This preprocessing step is not just about cleaning data; it is a form of deliberate feature engineering that is critical for the success of the entire discovery process.
 
----
+## How It Works
 
-## ✨ Key Features & Transformations
+The script ingests the feature file from the Silver layer and applies a sequence of non-destructive transformations.
 
-This script is a pipeline of four distinct, sequential machine learning preprocessing steps:
+1.  **Data Ingestion**: The script reads the comprehensive market feature file from `silver_data/features/{instrument}.parquet`.
 
-1.  **Relational Transformation:**
+2.  **Relational Transformation**: This is a critical step to make features comparable across different price levels and time periods.
 
-    - **What it does:** Converts all absolute price levels (e.g., `SMA_50 = 1.1250`) into a normalized distance from the current close price (e.g., `SMA_50_dist_norm = -0.0021`).
-    - **Why it's crucial:** This makes the features **scale-invariant**. A model can learn that a price bouncing off a moving average is significant, regardless of whether the instrument is trading at $1.12 or $2,000. It captures the _relationship_ between price and indicators, not their absolute values.
+    - **Problem**: An SMA value of 1.0850 for EURUSD is meaningless to a model without the context of the current price. Is that far away or close?
+    - **Solution**: The script identifies all columns representing an absolute price level (OHLC, moving averages, Bollinger Bands, support/resistance, etc.). It then converts each of these into a normalized distance from the current closing price. For example, the `SMA_50` column is replaced by `SMA_50_dist_norm`, calculated as `(SMA_50_price - close_price) / close_price`. This new feature represents "how far away, as a percentage, is the 50-period SMA from the current close?". This makes the feature independent of the absolute price.
 
-2.  **Categorical Encoding (One-Hot Encoding):**
+3.  **Categorical Encoding (One-Hot Encoding)**:
 
-    - **What it does:** Converts text-based features like `session_London` or `trend_regime_trend` into new binary (0/1) columns.
-    - **Why it's crucial:** ML models cannot process text. This transformation turns abstract categories into a numerical format the model can use to find patterns, such as "is the London/NY overlap more profitable?".
+    - **Problem**: A model cannot interpret text values like 'London' or 'trend'.
+    - **Solution**: The script identifies all categorical columns (`session`, `trend_regime`, `vol_regime`) and converts them into a series of binary (0/1) columns using one-hot encoding. For instance, the `session` column is replaced by several new columns like `session_London`, `session_New_York`, etc. A candle that occurred during the London session will have a `1` in the `session_London` column and a `0` in all others.
 
-3.  **Candlestick Pattern Compression:**
+4.  **Candlestick Pattern Compression**:
 
-    - **What it does:** Takes the raw scores from the `talib` library (which range from -200 to +200) and bins them into a simple 5-point scale: `{-1.0, -0.5, 0, 0.5, 1.0}`.
-    - **Why it's crucial:** The raw scores are often noisy. A score of 120 vs 130 is mathematically different but represents the same event: "a bullish engulfing pattern occurred". Compression reduces this noise, helping the model focus on the signal (the presence of a strong or weak pattern) rather than insignificant score variations.
+    - **Problem**: The `talib` library outputs candlestick pattern scores on a noisy scale (e.g., -200, -100, 0, 100, 200), which can be difficult for a model to interpret consistently.
+    - **Solution**: The script bins these scores into a simple, discrete 5-point scale: Strong Bearish (-1.0), Weak Bearish (-0.5), Neutral (0.0), Weak Bullish (0.5), and Strong Bullish (1.0). This reduces noise and simplifies the feature space, making the patterns more impactful.
 
-4.  **Standardization (Scaling):**
-    - **What it does:** Uses `sklearn.preprocessing.StandardScaler` to rescale all remaining numerical features so they have a mean of 0 and a standard deviation of 1.
-    - **Why it's crucial:** Features like ATR and RSI have vastly different natural scales. Without standardization, features with larger numerical ranges could unfairly dominate the learning process. Scaling puts all features on a level playing field.
+5.  **Time-Series Standardization (Scaling)**:
+    - **Problem**: Features like RSI (0-100 scale) and ATR (an absolute price value) exist on vastly different scales. This can cause models to incorrectly assign more importance to features with larger numerical ranges. Furthermore, scaling time-series data incorrectly can introduce **look-ahead bias**, where information from the future is used to scale data in the past, invalidating the model.
+    - **Solution**: The script applies a **rolling window standardization**. For each data point in a column, it calculates the mean and standard deviation of a _preceding window of data points_ (e.g., the last 200 candles) and uses these statistics to scale the current data point. This ensures that the scaling process is time-series-aware and **100% free of look-ahead bias**, which is a methodologically critical step for any financial modeling.
 
----
+## Key Architectural Features
 
-## ⚙️ How It Works: The Logic
+- **Prevention of Look-Ahead Bias**: The use of a rolling window for feature scaling is the single most important architectural feature of this layer. It guarantees that the preprocessing is methodologically sound and that the resulting models are not contaminated with future information.
+- **Feature Engineering for ML**: Each transformation is a deliberate choice to engineer features that are more learnable. Relational transformation creates scale-invariance, and one-hot encoding provides clear, numerical inputs.
+- **Idempotent & Stateless**: The script is stateless; it processes one file at a time and its output depends only on its input and the configuration. Running it multiple times on the same input will always produce the same output.
+- **Efficiency**: Continues the use of Parquet for fast I/O and downcasts data types (`downcast_dtypes`) to optimize memory usage and file size.
 
-1.  **File Discovery:** The script scans the `/silver_data/features` directory for new `.csv` files that do not yet have a corresponding `.parquet` file in the `/gold_data/features` directory.
-2.  **Serial Processing:** It processes one file at a time. Since the transformations are computationally fast and memory-bound, parallel processing is not necessary.
-3.  **Load Data:** It loads a single Silver features `.csv` file into a Pandas DataFrame.
-4.  **Execute Pipeline:** The `create_gold_features` function orchestrates the four transformation steps described above in the correct sequence.
-5.  **Save Output:** The final, fully transformed, purely numerical DataFrame is saved as a `.parquet` file in the `/gold_data/features` directory. This format ensures fast loading in the next stage of the pipeline.
+## Inputs and Outputs
 
----
+- **Input**: A single `.parquet` feature file from `silver_data/features/`.
 
-## 🛠️ Dependencies
+  - **Example Filename**: `EURUSD60.parquet`
 
-This script requires several specialized libraries. Install them via pip:
+- **Output**: A single `.parquet` ML-ready feature file in `gold_data/features/`.
+  - **Example Filename**: `EURUSD60.parquet`
+  - **Schema Transformation**: The output schema is purely numerical and ready for a machine learning model.
+    - `SMA_50` -> `SMA_50_dist_norm`
+    - `session` -> `session_London`, `session_New_York`, `session_Tokyo`, etc.
+    - `RSI_14` -> `RSI_14` (but now scaled to have a rolling mean of ~0 and std dev of ~1)
+    - `CDLHAMMER` -> `CDLHAMMER` (but now with values like -1.0, 0.0, 0.5, 1.0)
+    - The original `time` column is preserved for joining purposes but all other non-numeric columns are removed.
 
-````bash
-pip install pyarrow scikit-learn```
+## Configuration
 
----
+The behavior of the Gold layer is primarily controlled by one critical parameter in `config.py`.
 
-## 🚀 Usage
+- `GOLD_SCALER_ROLLING_WINDOW`: This integer defines the size of the lookback window used for the time-series-aware standardization. A larger window provides a more stable mean/std for scaling but is slower to react to changes in market volatility. A smaller window is more adaptive but can be noisier. The default of `200` is a common and sensible starting point.
 
-Execute the script from the root directory of the project.
+## How to Run the Script
 
-**1. Interactive Mode (Recommended):**
+1.  **Via the Master Orchestrator (Recommended)**:
+    The `orchestrator.py` script will run this layer automatically after the Silver layer is complete.
 
-The script will scan for new files and present a menu.
+    ```bash
+    python orchestrator.py
+    ```
 
-```bash
-python scripts/gold_data_generator.py
-````
+2.  **Standalone (Interactive Mode)**:
+    Run the script directly. It will scan for new `.parquet` feature files in `silver_data/features` and present an interactive menu to choose which instrument(s) to process.
 
-**2. Targeted Mode:**
+    ```bash
+    python scripts/gold_data_generator.py
+    ```
 
-To process a specific file from the `/silver_data/features` directory, pass its name as an argument.
-
-```bash
-python scripts/gold_data_generator.py EURUSD15.csv
-```
-
----
-
-## 📄 Output
-
-The script generates a `.parquet` file in the `/gold_data/features/` directory for each Silver feature file it processes. This Parquet file contains a purely numerical, ML-ready dataset with the same number of rows as the input.
-
-The columns will consist of:
-
-- The original `time` column.
-- Normalized distance features (e.g., `SMA_50_dist_norm`).
-- One-hot encoded binary features (e.g., `session_London`, `session_New_York`).
-- Compressed candlestick pattern scores (e.g., `CDLEngulfing`).
-- Standardized numerical features (e.g., `RSI_14`, `ADX_14`).
+3.  **Standalone (Targeted Mode)**:
+    Run the script with a specific Silver feature filename as a command-line argument.
+    ```bash
+    python scripts/gold_data_generator.py EURUSD60.parquet
+    ```

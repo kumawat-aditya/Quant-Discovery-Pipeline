@@ -1,96 +1,129 @@
-# Platinum Layer: Strategy Discoverer (`platinum_strategy_discoverer.py`)
+# Platinum Layer: The Rule Miner & Strategy Discoverer
 
-This script is the intelligent heart of the entire Strategy Finder pipeline. It uses a machine learning model (`DecisionTreeRegressor`) to act as a **rule miner**, sifting through the millions of potential trades to find explicit, human-readable trading rules that define a robust strategy.
+The Platinum Layer is the intelligent heart of the discovery pipeline. It consists of two distinct but cooperative scripts that work together to transform the billions of data points from the previous layers into a finite set of explicit, human-readable trading strategies. This layer is where abstract patterns are identified and the specific market conditions for trading them are mined using machine learning.
 
-## 🎯 Purpose in the Pipeline
+The process is split into two major parts to handle the immense scale of the data efficiently:
 
-Where the previous layers prepare the data, the Platinum Discoverer _interrogates_ it. For each profitable "blueprint" identified by the `platinum_preprocessor`, this script asks the question: _"Is there a specific, repeatable market context (a 'rule') where this blueprint is exceptionally profitable?"_
-
-It translates the statistical correlations in the data into concrete, testable hypotheses in the form of `if...then` trading rules, which are then passed on to the Diamond and Zircon layers for rigorous backtesting.
-
-## ✨ Key Features & Architecture
-
-This script embodies a **"Two-Phase Learning"** architecture for maximum efficiency and continuous improvement.
-
-### Phase 1: Discovery
-
-This is a comprehensive, one-time run to find initial rules for all new and unprocessed strategy blueprints. It scans for blueprints that have never been seen before and subjects them to the Decision Tree model to find a first set of high-quality trading rules. This entire phase is **resumable**; if it's interrupted, it will pick up where it left off on the next run.
-
-### Phase 2: Iterative Improvement
-
-This is a fast, targeted run that forms the core of the system's **feedback loop**. It ONLY re-evaluates blueprints for which the backtester has provided new negative feedback (i.e., new rules added to that blueprint's blacklist). It uses a **"data pruning"** technique:
-
-1. It loads the known unprofitable rules for a blueprint.
-2. It finds all the data points (candles) that match those bad rules.
-3. It temporarily sets the profitability of those data points to zero.
-4. It then re-trains the Decision Tree on this "pruned" dataset, forcing the model to find novel, alternative rules and avoid patterns that are known to be unprofitable.
-
-This makes the system smarter and more efficient over time.
+1.  **`platinum_prepper.py`**: A high-performance data aggregator that discovers abstract strategy "blueprints".
+2.  **`platinum_strategy_discoverer.py`**: A machine learning engine that finds the specific market rules for trading those blueprints.
 
 ---
 
-## ⚙️ How It Works: The Machine Learning Logic
+## Part 1: `platinum_prepper.py` - The Blueprint Discoverer
 
-1.  **File Discovery & State Management:** The script first identifies which blueprints are new (for Phase 1) and which have new blacklist feedback (for Phase 2) by comparing various log and output files.
-2.  **Parallel Processing:** The list of blueprints to process is divided into small batches, which are distributed to a pool of worker processes.
-3.  **Worker Task:** Each worker performs the following for its assigned blueprints:
-    a. **Load Data:** It loads the pre-computed performance data (the "target") for a specific blueprint and merges it with the master market context (the "features") from the Gold layer.
-    b. **Prune Data:** It checks for any known bad rules (from previous discoveries or the blacklist) and prunes the dataset as described above.
-    c. **Train Model:** It trains a `DecisionTreeRegressor` model on the data. The goal of the model is to predict `trade_count` (profitability) based on the market features.
-    d. **Extract Rules:** The script then traverses the trained decision tree, converting each path to a leaf node into a human-readable rule (e.g., `` `RSI_14` <= -1.5 and `session_London` > 0.5 ``).
-    e. **Filter for Quality:** Only rules that meet strict quality criteria are kept:
-    _ `MIN_CANDLES_PER_RULE`: The rule must apply to a minimum number of historical situations.
-    _ `DENSITY_LIFT_THRESHOLD`: The average profitability of candles matching the rule must be significantly higher (e.g., 1.5x) than the blueprint's overall average profitability.
-4.  **Save Results:** The main process collects the results and saves the newly discovered, high-quality rules to the `/platinum_data/discovered_strategies` directory. Blueprints for which no good rules could be found are marked as "exhausted".
+### Core Purpose
 
----
+This script's job is to make sense of the billions of enriched trades from the Silver Layer. It sifts through this massive dataset to find and categorize recurring, high-level strategy patterns, which we call **"blueprints."** A blueprint is an abstract rule about trade structure, such as:
 
-## 🛠️ Dependencies
+- _"Place the Stop-Loss 20% of the way to the support line and use a fixed 3:1 reward/risk ratio."_
+- _"Place the Take-Profit 5 basis points above the upper Bollinger Band and use a fixed 0.5% Stop-Loss."_
 
-This script requires several specialized libraries. Install them via pip:```bash
-pip install pyarrow scikit-learn
+After discovering all unique blueprints, it performs a massive aggregation to count how many winning trades for each blueprint occurred on every single candle. This pre-computation is essential for the machine learning stage that follows.
 
-````
+### How It Works
 
----
+This script is architected as a high-throughput **Map-Reduce** pipeline to process data that is too large to fit into memory.
 
-## 🔧 Configuration
+1.  **Binning**: The script first reads the continuous relational features from the Silver layer chunks (e.g., `sl_place_pct_to_resistance = 0.83`) and "bins" them into discrete categories (e.g., `sl_place_pct_to_resistance_bin = 8`). This discretization is what defines the abstract blueprints.
 
-Key parameters for the ML model and rule quality can be tuned directly in the global configuration section at the top of the script:
+2.  **Phase 1: Map (Parallel Discovery)**:
 
--   `MIN_CANDLE_LIMIT`: Pre-filters and ignores any blueprint that didn't apply to at least this many candles in total.
--   `DECISION_TREE_MAX_DEPTH`: Controls the complexity of the rules the model can discover. A deeper tree can find more complex, multi-condition rules but risks overfitting.
--   `MIN_CANDLES_PER_RULE`: A key parameter to prevent overfitting. It forces any discovered rule to be statistically significant by ensuring it's based on a sufficient number of historical examples.
--   `DENSITY_LIFT_THRESHOLD`: Controls how much better a rule must be compared to the baseline. A higher value leads to fewer, but higher-quality, rules.
+    - Multiple worker processes read the Silver `chunked_outcomes` files in parallel.
+    - Each worker discovers all unique blueprints within its assigned chunk and aggregates the trade counts for each blueprint per candle.
+    - The results are streamed to a large in-memory buffer in the main process.
 
----
+3.  **Phase 2: Shuffle (Sharded Streaming)**:
 
-## 🚀 Usage
+    - This is the key optimization to avoid I/O bottlenecks. When the memory buffer reaches a size threshold, it is "flushed" to disk.
+    - Instead of writing to thousands of tiny files, the buffer's contents are hashed and appended to a small, fixed number of temporary "shard" files. This concentrates all disk writes, making the process much faster.
 
-Execute the script from the root directory of the project.
+4.  **Phase 3: Reduce (Parallel Consolidation)**:
+    - After all chunks have been processed, a final parallel process begins.
+    - Each worker is assigned one temporary shard file. It loads its shard, performs a final aggregation (`groupby('key')`), and writes the final, clean target files—one small Parquet file for each unique strategy blueprint.
 
-**1. Interactive Mode (Recommended):**
+### Inputs and Outputs (Preprocessor)
 
-The script will scan for instruments with processed combination files and present a menu.
+- **Input**: The directory of chunked Parquet files from the Silver layer: `silver_data/chunked_outcomes/{instrument}/`.
 
-```bash
-python scripts/platinum_strategy_discoverer.py
-````
-
-**2. Targeted Mode:**
-
-To process a specific instrument, pass its name as an argument.
-
-```bash
-python scripts/platinum_strategy_discoverer.py EURUSD15
-```
+- **Outputs**:
+  1.  `platinum_data/combinations/{instrument}.parquet`: The master list of all discovered blueprints. Each blueprint is assigned a unique hash `key` for identification and its definition is stored (e.g., type, SL definition, TP definition).
+  2.  `platinum_data/targets/{instrument}/`: A directory containing potentially thousands of small Parquet files. Each file (`{key}.parquet`) contains the performance data (`entry_time`, `trade_count`) for a single blueprint.
 
 ---
 
-## 📄 Output
+## Part 2: `platinum_strategy_discoverer.py` - The Rule Miner
 
-This script modifies several files in the `/platinum_data/` directory:
+### Core Purpose
 
-- **`/discovered_strategies/{instrument}.parquet`:** The primary output. This file is appended with all the new, high-quality market rules discovered during the run.
-- **`/exhausted_keys/{instrument}.parquet`:** Appended with the keys of any blueprints for which the model could not find any good rules.
-- **`/discovery_log/{instrument}.processed.log`:** A log file that tracks which blueprints have been processed in Phase 1, making the script resumable.
+This script is the machine learning engine. It takes the blueprints discovered by the preprocessor and asks the critical question: **"What were the market conditions (from the Gold data) when this blueprint was _unusually_ successful?"** It uses a Decision Tree model to find the answer, which it extracts as a human-readable rule. The final output is a complete strategy, which is the combination of a **blueprint** (the trade structure) and a **market rule** (the entry condition).
+
+### How It Works
+
+1.  **Data Loading**: The script loads the ML-ready Gold features dataset into memory, where it is shared efficiently with all worker processes. It also loads the list of blueprints to be analyzed from the `combinations` file.
+
+2.  **Training Data Assembly**: For each blueprint, the script performs the following:
+
+    - It loads the corresponding small `target` file (containing `entry_time` and `trade_count`).
+    - It merges this target data with the Gold features on the `time` column. This creates a unique training dataset for each blueprint.
+
+3.  **The Feedback Loop (Blacklisting)**: Before training, the script checks if a `blacklist` file exists for the instrument. This file is created by the Diamond backtester and contains strategies that have already been tested and failed.
+
+    - If a rule for the current blueprint is on the blacklist, the script "prunes" the training data by setting the `trade_count` to zero for all candles matching the failed rule.
+    - This powerful mechanism forces the Decision Tree to ignore previously failed patterns and find **novel, alternative rules**, allowing the system to learn from its mistakes.
+
+4.  **Decision Tree Training**: A `DecisionTreeRegressor` model is trained.
+
+    - The features (`X`) are the Gold market data (e.g., scaled RSI, session dummies).
+    - The target (`y`) is the `trade_count` for the blueprint.
+    - The model's goal is to find paths (combinations of features) that lead to "leaves" with a high average `trade_count`.
+
+5.  **Rule Extraction & Filtering**: The script traverses the trained tree and translates the paths to the highest-performing leaves into human-readable rule strings (e.g., `RSI_14_scaled > 1.5 and session_London == 1`). It then applies strict quality filters from `config.py` to discard rules that are based on too few samples or don't provide a significant performance "lift" over the baseline.
+
+### Inputs and Outputs (Discoverer)
+
+- **Inputs**:
+
+  - `gold_data/features/{instrument}.parquet`: The source of ML-ready market conditions.
+  - The outputs of the Platinum Preprocessor (`combinations` and `targets` directories).
+  - `platinum_data/blacklists/{instrument}.parquet`: (Optional) The feedback file from the Diamond backtester.
+
+- **Outputs**:
+  - `platinum_data/discovered_strategies/{instrument}.parquet`: The primary output of the Platinum Layer. A single file containing a list of complete strategies, each defined by a blueprint `key` and a `market_rule` string.
+  - `platinum_data/exhausted_keys/{instrument}.parquet`: A list of blueprints for which the model could no longer find any new, profitable rules after considering the blacklist.
+  - `platinum_data/discovery_log/`: Log files that track which blueprints have been processed, making the script fully resumable.
+
+## Configuration
+
+The Platinum Layer's behavior is tuned via `config.py`:
+
+- **Preprocessor Settings**:
+  - `PLATINUM_BPS_BIN_SIZE`: The size of the bin for discretizing relational features.
+  - `PLATINUM_BUFFER_FLUSH_THRESHOLD`: The memory buffer size before flushing to shards.
+  - `PLATINUM_NUM_SHARDS`: The number of temporary files to use in the shuffle phase.
+- **Discoverer Settings**:
+  - `PLATINUM_MIN_CANDLE_LIMIT`: The minimum number of times a blueprint must have occurred to be considered.
+  - `PLATINUM_DT_MAX_DEPTH`: The maximum depth of the Decision Tree, controlling rule complexity.
+  - `PLATINUM_MIN_CANDLES_PER_RULE`: A key filter to prevent rules based on statistically insignificant sample sizes.
+  - `PLATINUM_DENSITY_LIFT_THRESHOLD`: Ensures a rule provides a significant performance edge over the blueprint's baseline.
+
+## How to Run the Scripts
+
+Both scripts are designed to be run in sequence for a given instrument.
+
+1.  **Via the Master Orchestrator (Recommended)**:
+    The `orchestrator.py` will run both scripts in the correct order automatically.
+
+    ```bash
+    python orchestrator.py
+    ```
+
+2.  **Standalone (Targeted Mode)**:
+    You must run the preprocessor first, followed by the discoverer, targeting the same instrument name.
+
+    ```bash
+    # Step 1: Run the preprocessor
+    python scripts/platinum_prepper.py EURUSD60
+
+    # Step 2: Run the discoverer
+    python scripts/platinum_strategy_discoverer.py EURUSD60
+    ```
