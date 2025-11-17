@@ -111,12 +111,16 @@ def run_simulation(
         
         # Conditionally create the trade record based on the requested log depth
         if deep_log:
-            # ### <<< CHANGE: Add the new 'duration_candles' field >>>
+            entry_atr = entry_row.get(f"ATR_{config.ATR_PERIODS[0]}", np.nan) # Assumes first ATR period
+            pnl_atr_norm = pnl_net / entry_atr if pd.notna(entry_atr) and entry_atr > 0 else np.nan
+
             trade_record = {
                 'trigger_key': trigger_key, 'market': simulation_market, 'entry_time': entry_row['time'],
                 'exit_time': pd.to_datetime(worker_silver_features_np[exit_idx, worker_col_to_idx['time']]),
-                'duration_candles': exit_idx - entry_idx, # <-- NEW FIELD
-                'pnl': pnl_net, 'outcome': outcome,
+                'duration_candles': exit_idx - entry_idx,
+                'pnl': pnl_net,
+                'pnl_atr_norm': pnl_atr_norm, # <-- NEW FIELD
+                'outcome': outcome,
                 'bp_type': bp_type, 'trade_type': strategy_details['trade_type'],
                 'sl_def': sl_def, 'sl_bin': sl_bin, 'tp_def': tp_def, 'tp_bin': tp_bin,
                 'trend_regime': entry_row.get('trend_regime_14', 'N/A'), 'vol_regime': entry_row.get('vol_regime_14', 'N/A'),

@@ -90,14 +90,15 @@ def calculate_performance_metrics(trade_log_df: pd.DataFrame) -> pd.Series:
     wins = trade_log_df[trade_log_df['pnl'] > 0]
     gross_profit = wins['pnl'].sum()
     gross_loss = abs(trade_log_df[trade_log_df['pnl'] <= 0]['pnl'].sum())
-    # ### <<< CHANGE: Calculate the average duration >>>
     avg_duration = trade_log_df['duration_candles'].mean()
+    avg_pnl_atr_norm = trade_log_df['pnl_atr_norm'].mean()
 
     return pd.Series({
         'Profit Factor': round(gross_profit / gross_loss if gross_loss > 0 else np.inf, 2),
         'Win Rate %': round(len(wins) * 100 / total_trades if total_trades > 0 else 0, 2),
         'Total Trades': total_trades,
-        'Avg Duration (Candles)': round(avg_duration, 1) # <-- NEW METRIC
+        'Avg Duration (Candles)': round(avg_duration, 1),
+        'Avg PnL per ATR': round(avg_pnl_atr_norm, 3) # <-- NEW METRIC
     })
 
 # --- REPORT GENERATION ---
