@@ -49,7 +49,7 @@ try:
     import config
     from scripts.logger_setup import setup_logging
     # ### <<< CHANGE: Import the new shared simulation engine >>>
-    from scripts.simulation_engine import run_simulation
+    from scripts.simulation_engine import run_simulation, init_worker
 except ImportError as e:
     logging.critical(f"Failed to import project modules. Ensure config.py, logger_setup.py, and simulation_engine.py are accessible: {e}")
     sys.exit(1)
@@ -57,26 +57,6 @@ except ImportError as e:
 
 # Initialize logger for this module
 logger = logging.getLogger(__name__)
-
-# --- WORKER-SPECIFIC GLOBALS ---
-worker_silver_features_df: pd.DataFrame
-worker_silver_features_np: np.ndarray
-worker_time_to_idx_lookup: pd.Series
-worker_col_to_idx: Dict[str, int]
-worker_pip_size: float
-worker_spread_cost: float
-
-def init_worker(silver_df: pd.DataFrame, pip_size: float, spread_cost: float):
-    """Initializer for each worker process in the multiprocessing Pool."""
-    global worker_silver_features_df, worker_silver_features_np, worker_time_to_idx_lookup
-    global worker_col_to_idx, worker_pip_size, worker_spread_cost
-    
-    worker_silver_features_df = silver_df
-    lookup_cols = ['time', 'open', 'high', 'low', 'close']
-    worker_col_to_idx = {col: i for i, col in enumerate(lookup_cols)}
-    worker_silver_features_np = worker_silver_features_df[lookup_cols].to_numpy()
-    worker_time_to_idx_lookup = pd.Series(worker_silver_features_df.index, index=worker_silver_features_df['time'])
-    worker_pip_size, worker_spread_cost = pip_size, spread_cost
 
 # --- CORE SIMULATION & METRICS LOGIC ---
 

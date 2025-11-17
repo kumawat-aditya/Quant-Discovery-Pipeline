@@ -20,14 +20,40 @@ import os
 # Import the main config file to access simulation parameters
 import config
 
-# --- Worker Globals (Expected to be populated by the calling script's init_worker) ---
-# These lines are for type hinting and clarity; they are not executed in the main process.
+# --- Worker Globals (Populated by the init_worker function) ---
 worker_silver_features_df: pd.DataFrame
 worker_silver_features_np: np.ndarray
 worker_time_to_idx_lookup: pd.Series
 worker_col_to_idx: Dict[str, int]
 worker_pip_size: float
 worker_spread_cost: float
+
+
+def init_worker(silver_df: pd.DataFrame, pip_size: float, spread_cost: float):
+    """
+    Initializer for each worker process in the multiprocessing Pool.
+
+    This function makes the market data and cost models available as global
+    variables within each worker, avoiding the need to serialize and send
+    this large data with every task.
+    """
+    global worker_silver_features_df, worker_silver_features_np, worker_time_to_idx_lookup
+    global worker_col_to_idx, worker_pip_size, worker_spread_cost
+    
+    # Store a copy of the full DataFrame for easy row lookups by index
+    worker_silver_features_df = silver_df
+    
+    # Create lean, high-performance lookup structures for the simulation loop
+    lookup_cols = ['time', 'open', 'high', 'low', 'close']
+    worker_col_to_idx = {col: i for i, col in enumerate(lookup_cols)}
+    worker_silver_features_np = worker_silver_features_df[lookup_cols].to_numpy()
+    worker_time_to_idx_lookup = pd.Series(
+        worker_silver_features_df.index, 
+        index=worker_silver_features_df['time']
+    )
+    
+    # Store cost models
+    worker_pip_size, worker_spread_cost = pip_size, spread_cost
 
 
 def _calculate_level_price(entry_row: pd.Series, level_def: str) -> float:
