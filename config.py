@@ -42,13 +42,6 @@ BRONZE_OUTPUT_CHUNK_SIZE: int = 500_000
 # The script will use as many columns as are present in the file.
 RAW_DATA_COLUMNS: list[str] = ["time", "open", "high", "low", "close", "volume"]
 
-# A dictionary to define the estimated spread cost in pips for different instruments.
-# A "DEFAULT" value is used for any instrument not explicitly listed.
-SPREAD_PIPS: dict[str, float] = {
-    "DEFAULT": 3.0, "EURUSD": 1.5, "GBPUSD": 2.0, "AUDUSD": 2.5,
-    "USDJPY": 2.0, "USDCAD": 2.5, "XAUUSD": 20.0,
-}
-
 # The core simulation grid. Defines SL/TP ratios and the max trade holding
 # period (`MAX_LOOKFORWARD`) for different chart timeframes.
 TIMEFRAME_PRESETS: dict[str, dict] = {
