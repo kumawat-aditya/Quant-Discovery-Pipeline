@@ -38,8 +38,10 @@ sys.path.append(os.path.dirname(SCRIPT_DIR))
 try:
     import config
     from scripts.logger_setup import setup_logging
+    # ### <<< CHANGE: Import the new shared simulation engine >>>
+    from scripts.simulation_engine import run_simulation
 except ImportError as e:
-    logging.critical(f"Failed to import project modules. Ensure config.py and logger_setup.py are accessible: {e}")
+    logging.critical(f"Failed to import project modules. Ensure config.py, logger_setup.py, and simulation_engine.py are accessible: {e}")
     sys.exit(1)
 
 # Initialize logger for this module
@@ -67,74 +69,19 @@ def init_worker(silver_df: pd.DataFrame, pip_size: float, spread_cost: float):
 
 # --- CORE SIMULATION & METRICS ---
 
-def run_single_simulation(
+def validation_strategy_worker(
     strategy_details: pd.Series, base_dirs: Dict[str, str], master_instrument: str, validation_market: str
 ) -> List[Dict]:
-    """Worker task: Simulates one strategy on the pre-loaded market data."""
-    trigger_key = strategy_details['trigger_key']
-    trigger_path = os.path.join(base_dirs['triggers'], master_instrument, validation_market, f"{trigger_key}.parquet")
-
-    try:
-        trigger_times = pd.read_parquet(trigger_path)['time']
-    except FileNotFoundError:
-        return []
-
-    trade_log = []
-    trade_type = 1 if strategy_details['trade_type'] == 'buy' else -1
-    trigger_indices = worker_time_to_idx_lookup.reindex(trigger_times).dropna().astype(int).values
-
-    for entry_idx in trigger_indices:
-        entry_row = worker_silver_features_df.iloc[entry_idx]
-        entry_price = entry_row['close']
-        
-        bp_type, sl_def, sl_bin, tp_def, tp_bin = (
-            strategy_details['type'], strategy_details['sl_def'], strategy_details['sl_bin'],
-            strategy_details['tp_def'], strategy_details['tp_bin']
-        )
-        sl_price, tp_price = np.nan, np.nan
-        
-        if 'ratio' in sl_def: sl_price = entry_price * (1 - trade_type * sl_bin)
-        else:
-            level = entry_row.get(sl_def, np.nan)
-            if np.isnan(level): continue
-            if 'Pct' in bp_type: sl_price = level - trade_type * (abs(entry_price - level) * (sl_bin / 10.0))
-            else: sl_price = level - trade_type * (sl_bin * worker_pip_size * 10)
-
-        if 'ratio' in tp_def: tp_price = entry_price * (1 + trade_type * tp_bin)
-        else:
-            level = entry_row.get(tp_def, np.nan)
-            if np.isnan(level): continue
-            if 'Pct' in bp_type: tp_price = level + trade_type * (abs(entry_price - level) * (tp_bin / 10.0))
-            else: tp_price = level + trade_type * (tp_bin * worker_pip_size * 10)
-            
-        if np.isnan(sl_price) or np.isnan(tp_price): continue
-
-        limit = min(entry_idx + 1 + config.SIMULATION_MAX_LOOKFORWARD, len(worker_silver_features_np))
-        outcome, exit_price, exit_idx = 'expired', entry_price, limit - 1
-        for j in range(entry_idx + 1, limit):
-            high, low = worker_silver_features_np[j, worker_col_to_idx['high']], worker_silver_features_np[j, worker_col_to_idx['low']]
-            if (trade_type == 1 and high >= tp_price) or (trade_type == -1 and low <= tp_price):
-                outcome, exit_price, exit_idx = 'win', tp_price, j
-                break
-            if (trade_type == 1 and low <= sl_price) or (trade_type == -1 and high >= sl_price):
-                outcome, exit_price, exit_idx = 'loss', sl_price, j
-                break
-        
-        pnl_net = ((exit_price - entry_price) * trade_type) - worker_spread_cost - ((config.SIMULATION_COMMISSION_PER_LOT / 100_000) * entry_price)
-        
-        # ### <<< CHANGE: Enriched the trade log with full blueprint details >>>
-        trade_log.append({
-            'trigger_key': trigger_key, 'market': validation_market, 'entry_time': entry_row['time'],
-            'exit_time': pd.to_datetime(worker_silver_features_np[exit_idx, worker_col_to_idx['time']]),
-            'pnl': pnl_net, 'outcome': outcome,
-            # Blueprint Definition
-            'bp_type': bp_type, 'trade_type': strategy_details['trade_type'],
-            'sl_def': sl_def, 'sl_bin': sl_bin, 'tp_def': tp_def, 'tp_bin': tp_bin,
-            # Market Regimes & Context
-            'trend_regime': entry_row.get('trend_regime_14', 'N/A'), 'vol_regime': entry_row.get('vol_regime_14', 'N/A'),
-            'session': entry_row.get('session', 'N/A'), 'RSI_14': entry_row.get('RSI_14', np.nan),
-        })
-    return trade_log
+    """
+    A lightweight worker that calls the shared simulation engine with deep_log=True.
+    """
+    return run_simulation(
+        strategy_details=strategy_details,
+        base_dirs=base_dirs,
+        master_instrument=master_instrument,
+        simulation_market=validation_market,
+        deep_log=True  # The Validator always requests the rich, detailed log
+    )
 
 def calculate_performance_metrics(trade_log_df: pd.DataFrame) -> pd.Series:
     """Calculates performance metrics from a trade log DataFrame."""
@@ -233,7 +180,7 @@ def run_validator_for_instrument(master_instrument: str, base_dirs: Dict[str, st
         spread_cost = spread_pips * pip_size
 
         tasks = [row for _, row in master_strategies_df.iterrows()]
-        worker_func = partial(run_single_simulation, base_dirs=base_dirs, master_instrument=master_instrument, validation_market=market)
+        worker_func = partial(validation_strategy_worker, base_dirs=base_dirs, master_instrument=master_instrument, validation_market=market)
         
         pool_init_args = (silver_df, pip_size, spread_cost)
         with Pool(processes=config.MAX_CPU_USAGE, initializer=init_worker, initargs=pool_init_args) as pool:

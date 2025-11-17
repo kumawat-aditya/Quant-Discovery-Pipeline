@@ -48,9 +48,12 @@ sys.path.append(os.path.dirname(SCRIPT_DIR))
 try:
     import config
     from scripts.logger_setup import setup_logging
+    # ### <<< CHANGE: Import the new shared simulation engine >>>
+    from scripts.simulation_engine import run_simulation
 except ImportError as e:
-    logging.critical(f"Failed to import project modules. Ensure config.py and logger_setup.py are accessible: {e}")
+    logging.critical(f"Failed to import project modules. Ensure config.py, logger_setup.py, and simulation_engine.py are accessible: {e}")
     sys.exit(1)
+
 
 # Initialize logger for this module
 logger = logging.getLogger(__name__)
@@ -77,86 +80,27 @@ def init_worker(silver_df: pd.DataFrame, pip_size: float, spread_cost: float):
 
 # --- CORE SIMULATION & METRICS LOGIC ---
 
-def _calculate_level_price(entry_row: pd.Series, level_def: str) -> float:
-    """Calculates the absolute price of a market level (e.g., 'SMA_50')."""
-    if level_def not in entry_row or pd.isna(entry_row[level_def]):
-        return np.nan
-    return entry_row[level_def]
+def backtest_strategy_worker(
+    strategy_details: pd.Series, base_dirs: Dict[str, str], master_instrument: str
+):
+    """
+    A lightweight worker that calls the shared simulation engine and then calculates
+    performance metrics on the results.
+    """
+    # Call the shared engine with deep_log=False
+    trade_log_list = run_simulation(
+        strategy_details=strategy_details,
+        base_dirs=base_dirs,
+        master_instrument=master_instrument,
+        simulation_market=master_instrument, # Backtester only runs on the master instrument
+        deep_log=False
+    )
 
-def run_simulation_for_strategy(strategy_details: pd.Series, base_dirs: Dict[str, str], master_instrument: str):
-    """The main worker task. Performs a high-fidelity simulation for one strategy."""
-    trigger_key = strategy_details['trigger_key']
-    trigger_path = os.path.join(base_dirs['triggers'], master_instrument, master_instrument, f"{trigger_key}.parquet")
-    
-    try:
-        trigger_times = pd.read_parquet(trigger_path)['time']
-    except FileNotFoundError:
+    if not trade_log_list:
         return None
-
-    trade_log = []
-    trigger_indices = worker_time_to_idx_lookup.reindex(trigger_times).dropna().astype(int).values
-
-    for entry_idx in trigger_indices:
-        entry_row = worker_silver_features_df.iloc[entry_idx]
-        entry_price = entry_row['close']
-        entry_time = entry_row['time']
-        
-        bp_type, sl_def, sl_bin, tp_def, tp_bin = (
-            strategy_details['type'], strategy_details['sl_def'], strategy_details['sl_bin'],
-            strategy_details['tp_def'], strategy_details['tp_bin']
-        )
-        
-        trade_type = 1 if strategy_details['trade_type'] == 'buy' else -1
-        
-        sl_price, tp_price = np.nan, np.nan
-        
-        if 'ratio' in sl_def:
-            sl_price = entry_price * (1 - trade_type * sl_bin)
-        else:
-            level_price = _calculate_level_price(entry_row, sl_def)
-            if np.isnan(level_price): continue
-            if 'Pct' in bp_type:
-                sl_price = level_price - trade_type * (abs(entry_price - level_price) * (sl_bin / 10.0))
-            else: # BPS
-                sl_price = level_price - trade_type * (sl_bin * worker_pip_size * 10)
-
-        if 'ratio' in tp_def:
-            tp_price = entry_price * (1 + trade_type * tp_bin)
-        else:
-            level_price = _calculate_level_price(entry_row, tp_def)
-            if np.isnan(level_price): continue
-            if 'Pct' in bp_type:
-                tp_price = level_price + trade_type * (abs(entry_price - level_price) * (tp_bin / 10.0))
-            else: # BPS
-                tp_price = level_price + trade_type * (tp_bin * worker_pip_size * 10)
-
-        if np.isnan(sl_price) or np.isnan(tp_price): continue
-
-        limit = min(entry_idx + 1 + config.SIMULATION_MAX_LOOKFORWARD, len(worker_silver_features_np))
-        outcome, exit_time, exit_price = 'expired', worker_silver_features_np[limit - 1, worker_col_to_idx['time']], worker_silver_features_np[limit - 1, worker_col_to_idx['close']]
-
-        for j in range(entry_idx + 1, limit):
-            current_high = worker_silver_features_np[j, worker_col_to_idx['high']]
-            current_low = worker_silver_features_np[j, worker_col_to_idx['low']]
-            
-            if (trade_type == 1 and current_high >= tp_price) or (trade_type == -1 and current_low <= tp_price):
-                outcome, exit_price = 'win', tp_price
-                exit_time = worker_silver_features_np[j, worker_col_to_idx['time']]
-                break
-            if (trade_type == 1 and current_low <= sl_price) or (trade_type == -1 and current_high >= sl_price):
-                outcome, exit_price = 'loss', sl_price
-                exit_time = worker_silver_features_np[j, worker_col_to_idx['time']]
-                break
-
-        pnl_points = (exit_price - entry_price) * trade_type
-        commission_cost = (config.SIMULATION_COMMISSION_PER_LOT / 100_000) * entry_price
-        pnl_net = pnl_points - worker_spread_cost - commission_cost
-
-        trade_log.append({'entry_time': entry_time, 'exit_time': pd.to_datetime(exit_time), 'pnl': pnl_net, 'outcome': outcome})
-
-    if not trade_log: return None
-    return calculate_performance_metrics(pd.DataFrame(trade_log), strategy_details)
-
+    
+    # The engine returns a simple log; now calculate metrics from it.
+    return calculate_performance_metrics(pd.DataFrame(trade_log_list), strategy_details)
 
 def calculate_performance_metrics(trade_log_df: pd.DataFrame, strat_details: pd.Series) -> Dict:
     """Calculates a comprehensive suite of performance metrics from a trade log."""
@@ -232,7 +176,7 @@ def run_backtester_for_instrument(master_instrument: str, base_dirs: Dict[str, s
     tasks = [row for _, row in strategies_df.iterrows()]
     
     logger.info("--- Running Parallel Backtests ---")
-    worker_func = partial(run_simulation_for_strategy, base_dirs=base_dirs, master_instrument=master_instrument)
+    worker_func = partial(backtest_strategy_worker, base_dirs=base_dirs, master_instrument=master_instrument)
     pool_init_args = (silver_df, pip_size, spread_cost)
     all_results = []
     with Pool(processes=config.MAX_CPU_USAGE, initializer=init_worker, initargs=pool_init_args) as pool:
