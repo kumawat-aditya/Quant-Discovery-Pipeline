@@ -109,7 +109,7 @@ def run_single_simulation(
             
         if np.isnan(sl_price) or np.isnan(tp_price): continue
 
-        limit = min(entry_idx + 1 + config.DIAMOND_MAX_LOOKFORWARD, len(worker_silver_features_np))
+        limit = min(entry_idx + 1 + config.SIMULATION_MAX_LOOKFORWARD, len(worker_silver_features_np))
         outcome, exit_price, exit_idx = 'expired', entry_price, limit - 1
         for j in range(entry_idx + 1, limit):
             high, low = worker_silver_features_np[j, worker_col_to_idx['high']], worker_silver_features_np[j, worker_col_to_idx['low']]
@@ -120,7 +120,7 @@ def run_single_simulation(
                 outcome, exit_price, exit_idx = 'loss', sl_price, j
                 break
         
-        pnl_net = ((exit_price - entry_price) * trade_type) - worker_spread_cost - ((config.DIAMOND_COMMISSION_PER_LOT / 100_000) * entry_price)
+        pnl_net = ((exit_price - entry_price) * trade_type) - worker_spread_cost - ((config.SIMULATION_COMMISSION_PER_LOT / 100_000) * entry_price)
         
         # ### <<< CHANGE: Enriched the trade log with full blueprint details >>>
         trade_log.append({
@@ -168,7 +168,7 @@ def generate_final_reports(all_trades: List[Dict], base_dirs: Dict[str, str], ma
         group.to_parquet(os.path.join(market_log_dir, f"{key}.parquet"), index=False)
     logger.info("  - Raw trade logs saved.")
 
-    detailed_report = all_trades_df.groupby(['trigger_key', 'market']).apply(calculate_performance_metrics).reset_index()
+    detailed_report = all_trades_df.groupby(['trigger_key', 'market']).apply(calculate_performance_metrics, include_groups=False).reset_index()
     detailed_report.to_parquet(os.path.join(base_dirs['final_reports'], f"{master_instrument}_detailed.parquet"), index=False)
     logger.info("  - Detailed cross-market report saved.")
 
@@ -178,7 +178,7 @@ def generate_final_reports(all_trades: List[Dict], base_dirs: Dict[str, str], ma
 
     regime_cols = ['trend_regime', 'vol_regime', 'session']
     regime_reports = [
-        all_trades_df.groupby(['trigger_key', col]).apply(calculate_performance_metrics).reset_index()
+        all_trades_df.groupby(['trigger_key', col]).apply(calculate_performance_metrics, include_groups=False).reset_index()
         .rename(columns={col: 'regime_value'}).assign(regime_type=col)
         for col in tqdm(regime_cols, desc="Generating Regime Analysis")
     ]
@@ -229,7 +229,7 @@ def run_validator_for_instrument(master_instrument: str, base_dirs: Dict[str, st
         
         instrument_code = re.sub(r'\d+', '', market).upper()
         pip_size = 0.01 if "JPY" in instrument_code or "XAU" in instrument_code else 0.0001
-        spread_pips = config.DIAMOND_SPREAD_PIPS.get(instrument_code, config.DIAMOND_SPREAD_PIPS["DEFAULT"])
+        spread_pips = config.SIMULATION_SPREAD_PIPS.get(instrument_code, config.SIMULATION_SPREAD_PIPS["DEFAULT"])
         spread_cost = spread_pips * pip_size
 
         tasks = [row for _, row in master_strategies_df.iterrows()]

@@ -132,7 +132,7 @@ def run_simulation_for_strategy(strategy_details: pd.Series, base_dirs: Dict[str
 
         if np.isnan(sl_price) or np.isnan(tp_price): continue
 
-        limit = min(entry_idx + 1 + config.DIAMOND_MAX_LOOKFORWARD, len(worker_silver_features_np))
+        limit = min(entry_idx + 1 + config.SIMULATION_MAX_LOOKFORWARD, len(worker_silver_features_np))
         outcome, exit_time, exit_price = 'expired', worker_silver_features_np[limit - 1, worker_col_to_idx['time']], worker_silver_features_np[limit - 1, worker_col_to_idx['close']]
 
         for j in range(entry_idx + 1, limit):
@@ -149,7 +149,7 @@ def run_simulation_for_strategy(strategy_details: pd.Series, base_dirs: Dict[str
                 break
 
         pnl_points = (exit_price - entry_price) * trade_type
-        commission_cost = (config.DIAMOND_COMMISSION_PER_LOT / 100_000) * entry_price
+        commission_cost = (config.SIMULATION_COMMISSION_PER_LOT / 100_000) * entry_price
         pnl_net = pnl_points - worker_spread_cost - commission_cost
 
         trade_log.append({'entry_time': entry_time, 'exit_time': pd.to_datetime(exit_time), 'pnl': pnl_net, 'outcome': outcome})
@@ -225,7 +225,7 @@ def run_backtester_for_instrument(master_instrument: str, base_dirs: Dict[str, s
 
     instrument_code = re.sub(r'\d+', '', master_instrument).upper()
     pip_size = 0.01 if "JPY" in instrument_code or "XAU" in instrument_code else 0.0001
-    spread_pips = config.DIAMOND_SPREAD_PIPS.get(instrument_code, config.DIAMOND_SPREAD_PIPS["DEFAULT"])
+    spread_pips = config.SIMULATION_SPREAD_PIPS.get(instrument_code, config.SIMULATION_SPREAD_PIPS["DEFAULT"])
     spread_cost = spread_pips * pip_size
 
     logger.info(f"Found {len(strategies_df)} strategies to backtest.")

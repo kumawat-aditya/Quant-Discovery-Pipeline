@@ -26,3 +26,9 @@ zircon_data/*
 
 # Ignore any csv under the main directory only
 /*.parquet
+
+# ignore log files
+logs/*
+
+# Ignore pyc
+*.pyc

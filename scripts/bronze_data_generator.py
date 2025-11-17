@@ -138,7 +138,7 @@ def get_config_from_filename(filename: str) -> Tuple[Optional[Dict], Optional[fl
 
     logger.info(f"Config '{timeframe_key}' detected for {instrument.upper()}.")
     pip_size = 0.01 if "JPY" in instrument.upper() or "XAU" in instrument.upper() else 0.0001
-    spread_in_pips = config.SPREAD_PIPS.get(instrument.upper(), config.SPREAD_PIPS["DEFAULT"])
+    spread_in_pips = config.SIMULATION_SPREAD_PIPS.get(instrument.upper(), config.SIMULATION_SPREAD_PIPS["DEFAULT"])
     spread_cost = spread_in_pips * pip_size
     logger.info(f"   -> Instrument: {instrument.upper()} | Pip Size: {pip_size:.4f} | "
                 f"Spread: {spread_in_pips} pips ({spread_cost:.5f})")
@@ -164,18 +164,33 @@ def process_chunk_task(task_indices: Tuple[int, int]) -> List[Tuple]:
 
 def _create_df_from_results(data: List[Tuple]) -> pd.DataFrame:
     """Converts a list of raw trade tuples into a structured, optimized DataFrame."""
-    if not data: return pd.DataFrame()
+    if not data:
+        return pd.DataFrame()
+
     df = pd.DataFrame(data, columns=[
         "entry_time", "trade_type", "entry_price", "sl_price", "tp_price",
         "sl_ratio", "tp_ratio", "exit_time"
     ])
+
+    # If df has no rows at this point, return it as is, to avoid KeyErrors
+    # This handles cases where 'data' wasn't empty but resulted in a 0-row DataFrame (e.g., malformed data)
+    if df.empty:
+        return df
+
     df['entry_time'] = pd.to_datetime(df['entry_time'], unit='ns')
     df['exit_time'] = pd.to_datetime(df['exit_time'], unit='ns')
-    df['trade_type'] = np.where(df['trade_type'] == 1, 'buy', 'sell').astype('category')
-    df['outcome'] = 'win'
+    
+    # FIX START: Ensure these are on separate lines
+    df['trade_type'] = np.where(df['trade_type'] == 1, 'buy', 'sell')
+    df['trade_type'] = df['trade_type'].astype('category') 
+    
+    df['outcome'] = 'win' # This line was accidentally commented out / not executed
     df['outcome'] = df['outcome'].astype('category')
+    # FIX END
+    
     for col in df.select_dtypes(include=['float64']).columns:
         df[col] = df[col].astype('float32')
+        
     return df
 
 

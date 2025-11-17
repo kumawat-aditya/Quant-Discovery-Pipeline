@@ -153,22 +153,23 @@ PLATINUM_DISCOVERY_BATCH_SIZE: int = 20
 # --- 6. DIAMOND LAYER CONFIGURATION ---
 # Settings for all Diamond layer scripts (Prepper, Backtester, Validator).
 
-# -- Backtester Settings --
-# Assumed spread in pips for cost calculation. This should be tailored to the instrument.
-# This is a dictionary to allow for instrument-specific spreads.
-DIAMOND_SPREAD_PIPS: dict[str, float] = {
+# --- 7. SIMULATION & COST MODEL SETTINGS (NEW SECTION) ---
+# This is the single source of truth for all simulation costs and parameters.
+
+# Assumed spread in pips for cost calculation, used by Bronze and Diamond layers.
+SIMULATION_SPREAD_PIPS: dict[str, float] = {
     "DEFAULT": 3.0, "EURUSD": 1.5, "GBPUSD": 2.0, "AUDUSD": 2.5,
     "USDJPY": 2.0, "USDCAD": 2.5, "XAUUSD": 20.0,
 }
 
 # Assumed round-trip commission cost per standard lot (100,000 units).
-DIAMOND_COMMISSION_PER_LOT: float = 7.0
+SIMULATION_COMMISSION_PER_LOT: float = 7.0
 
-# The maximum number of candles a trade will be held before being closed ('expired').
-DIAMOND_MAX_LOOKFORWARD: int = 500
+# The maximum number of candles a trade will be held in the Diamond layer sims.
+SIMULATION_MAX_LOOKFORWARD: int = 500
 
 # --- Performance Filters for "Master Strategy" Status ---
-# These criteria define the minimum quality for a strategy to pass the backtest.
+# Used by the diamond_backtester to filter for quality.
 DIAMOND_MIN_PROFIT_FACTOR: float = 1.5
 DIAMOND_MAX_DRAWDOWN_PCT: float = 20.0
 DIAMOND_MIN_TOTAL_TRADES: int = 50
