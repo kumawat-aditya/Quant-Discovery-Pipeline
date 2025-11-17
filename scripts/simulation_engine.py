@@ -111,9 +111,11 @@ def run_simulation(
         
         # Conditionally create the trade record based on the requested log depth
         if deep_log:
+            # ### <<< CHANGE: Add the new 'duration_candles' field >>>
             trade_record = {
                 'trigger_key': trigger_key, 'market': simulation_market, 'entry_time': entry_row['time'],
                 'exit_time': pd.to_datetime(worker_silver_features_np[exit_idx, worker_col_to_idx['time']]),
+                'duration_candles': exit_idx - entry_idx, # <-- NEW FIELD
                 'pnl': pnl_net, 'outcome': outcome,
                 'bp_type': bp_type, 'trade_type': strategy_details['trade_type'],
                 'sl_def': sl_def, 'sl_bin': sl_bin, 'tp_def': tp_def, 'tp_bin': tp_bin,
