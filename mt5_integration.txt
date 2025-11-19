@@ -1,0 +1,118 @@
+### **System Architecture: The MT5 Live Strategy Validator**
+
+This system will run as a persistent Python application on a server alongside an active MetaTrader 5 terminal. It will connect to the MT5 terminal to fetch live data, perform all calculations in Python's high-performance environment, and then send trade execution commands back to MT5.
+
+#### **Core Components**
+
+1.  **The Main Controller (`mt5_validator.py`)**: The central orchestrator that runs the main event loop.
+2.  **MT5 Connector (`mt5_connector.py`)**: A dedicated module to handle all interactions with the `MetaTrader5` library, ensuring a stable connection.
+3.  **Data Engine (`data_engine.py`)**: Responsible for fetching, caching, and preparing market data in the exact format our strategies expect.
+4.  **Feature Engine (`feature_engine.py`)**: Replicates the Gold Layer's feature generation process on live data.
+5.  **Strategy Loader (`strategy_loader.py`)**: Loads the "Master Strategies" from the Diamond Layer reports.
+6.  **Trading Engine (`trading_engine.py`)**: Manages trade execution, position tracking, and risk management.
+7.  **Configuration (`live_config.py`)**: A dedicated config file for the live testing environment.
+
+---
+
+#### **Detailed Component Breakdown**
+
+##### **1. Configuration (`live_config.py`)**
+
+This file is separate from the research `config.py` and contains parameters specific to live execution.
+
+*   `MT5_PATH`: Full path to the `terminal64.exe`.
+*   `MT5_LOGIN`, `MT5_PASSWORD`, `MT5_SERVER`: Account credentials.
+*   `SYMBOLS_TO_TRACK`: A list of symbols to monitor (e.g., `["EURUSD", "GBPUSD"]`).
+*   `TIMEFRAME`: The MT5 timeframe to use (e.g., `mt5.TIMEFRAME_M15`).
+*   `LOT_SIZE`: The default position size for each trade.
+*   `MAX_TRADES_PER_STRATEGY`: A risk management setting to prevent a single buggy strategy from opening too many trades.
+*   `POLLING_INTERVAL_SECONDS`: How often the main loop runs to check for new signals (e.g., `60` seconds for an M15 chart).
+
+##### **2. MT5 Connector (`mt5_connector.py`)**
+
+A simple, robust class to manage the MT5 connection lifecycle.
+
+*   **`connect()` method**: Initializes the MT5 connection using credentials from `live_config.py`. Handles retries and error logging.
+*   **`disconnect()` method**: Shuts down the connection gracefully.
+*   **`is_connected()` method**: Checks the connection status.
+*   **Context Manager (`__enter__`, `__exit__`)**: Allows for safe connection management using `with` statements.
+
+##### **3. Data Engine (`data_engine.py`)**
+
+This is crucial for performance. It prevents re-fetching the same historical data on every loop.
+
+*   **`__init__(connector, symbols, timeframe, history_bars)`**: Initializes with a connector instance and parameters. `history_bars` should be large enough for all indicator warmup periods (e.g., 500 bars).
+*   **`update_data()` method**: The core method called in the main loop.
+    1.  For each symbol, it checks the timestamp of the last known bar.
+    2.  It uses `mt5.copy_rates_from_pos` to fetch only the *new* bars that have formed since the last check.
+    3.  Appends the new bars to its internal DataFrame cache and drops the oldest ones to maintain the `history_bars` length.
+*   **`get_dataframe(symbol)` method**: Returns the latest, up-to-date Pandas DataFrame for a symbol.
+
+##### **4. Feature Engine (`feature_engine.py`)**
+
+This module perfectly replicates the Gold Layer's logic on the live data from the Data Engine.
+
+*   **`__init__()`**: Can be a stateless module with functions.
+*   **`_calculate_silver_features(df)` function**: A private function that takes a raw OHLC DataFrame and calculates all the *same* indicators (SMAs, RSIs, S/R, etc.) with the *same* parameters as `silver_data_generator.py`. This is critical for consistency.
+*   **`generate_gold_features(df)` function**: The main public function.
+    1.  Calls `_calculate_silver_features()` to get the raw features.
+    2.  Applies the **exact same** relational transformations, categorical encoding, pattern compression, and **rolling window standardization** as `gold_data_generator.py`.
+    3.  Returns a fully processed "Gold" DataFrame, where the last row represents the current, live market state in a format the ML rules can understand.
+
+##### **5. Strategy Loader (`strategy_loader.py`)**
+
+*   **`load_master_strategies(instrument_file_path)` function**:
+    1.  Reads the `diamond_data/master_reports/{instrument}.parquet` file.
+    2.  It should also read the corresponding `platinum_data/combinations` file and merge them to get the full blueprint definition (SL/TP logic) for each strategy.
+    3.  It might perform a simple pre-parsing of the `market_rule` string to make it faster to evaluate later, although Pandas `.query()` is already very fast.
+    4.  Returns a list of "Strategy Objects" or dictionaries, each containing all necessary info: `trigger_key`, `trade_type`, `market_rule`, SL/TP definitions, etc.
+
+##### **6. Trading Engine (`trading_engine.py`)**
+
+This module translates signals into actions.
+
+*   **`__init__(connector, config)`**: Initializes with the MT5 connector and live config.
+*   **`_construct_trade_request(...)` method**: A helper to build the dictionary required by the `mt5.order_send()` function, including lot size, SL/TP prices, and the crucial **comment field**.
+*   **`_calculate_sl_tp_prices(strategy, entry_price, current_features_row)` method**: This complex method replicates the logic from the `simulation_engine.py`. It takes the blueprint definition and the live "Silver" feature values (e.g., the current SMA_50 price) to calculate the absolute SL and TP prices for the trade.
+*   **`execute_trade(strategy, symbol, current_features_row)` method**:
+    1.  First, checks if there is already an open position for this `strategy.trigger_key` on this symbol to avoid duplicate trades.
+    2.  Calculates the entry price, SL, and TP levels.
+    3.  Constructs the trade request, setting the `comment` field to the `strategy.trigger_key`. **This is the key to tracking performance.**
+    4.  Calls `mt5.order_send()` to execute the trade.
+    5.  Logs the result (success or failure) extensively.
+
+##### **7. The Main Controller (`mt5_validator.py`)**
+
+This is the `main.py` of the live testing system. It ties everything together in an event loop.
+
+*   **Setup Phase**:
+    1.  Initialize the MT5 Connector and establish connection.
+    2.  Initialize the Strategy Loader to load all master strategies into memory.
+    3.  Initialize the Data Engine with the required symbols and pre-fill it with initial historical data.
+    4.  Initialize the Feature and Trading Engines.
+
+*   **The Main Loop (`while True:`)**:
+    1.  `data_engine.update_data()`: Fetches any new bars from MT5.
+    2.  **`for each symbol in SYMBOLS_TO_TRACK:`**:
+        a. `raw_df = data_engine.get_dataframe(symbol)`
+        b. `gold_df = feature_engine.generate_gold_features(raw_df.copy())`
+        c. `latest_features = gold_df.iloc[-1]` (The most recent, complete bar's features)
+        d. `silver_features_for_sltp = feature_engine._calculate_silver_features(raw_df.copy()).iloc[-1]` (We need the unprocessed Silver features for SL/TP calculation)
+    3.  **`for each strategy in loaded_strategies:`**
+        a. **Signal Check:** Try to evaluate the strategy's rule against the latest features. This is the core logic: `if latest_features.query(strategy.market_rule).empty: continue`
+        b. **Trade Execution:** If the rule matches (query is not empty), call `trading_engine.execute_trade(strategy, symbol, silver_features_for_sltp)`.
+    4.  `time.sleep(POLLING_INTERVAL_SECONDS)`: Wait before the next cycle.
+
+---
+
+### **Post-Analysis Workflow (After a Month)**
+
+After the validator has been running for a period, you can perform the analysis:
+
+1.  **Export Trade History:** In the MT5 Terminal, go to the "Account History" tab.
+2.  **Filter by Comment:** Right-click, select "Custom Period," and then you can often filter or at least see the "Comment" column in the report.
+3.  **Automated Analysis (Recommended):**
+    *   Write a separate Python script that uses the `MetaTrader5` library's `mt5.history_deals_get()` function.
+    *   This function fetches all historical deals within a date range.
+    *   Load these deals into a Pandas DataFrame.
+    *   You can now perform a `groupby('deal_comment')` and calculate the PnL, win rate, and other metrics for each `trigger_key` automatically. This provides a direct, data-driven comparison of how the strategies performed in the live environment versus the backtest.

@@ -1,0 +1,111 @@
+### **UI Design & System Architecture: The Quant Researcher's Workbench**
+
+The application is architected as a cohesive workbench where a **globally selected Master Instrument** drives the context for all analytical views. This ensures clarity and focus, allowing a researcher to perform a deep-dive on a single discovery pipeline run from start to finish.
+
+#### **Global Header & Application State**
+
+Across the top of the entire application, a single, persistent UI element controls the state:
+
+*   **Master Instrument Selector:** A prominent dropdown menu listing all instruments available in the `raw_data` directory (e.g., `EURUSD60`, `XAUUSD240`).
+    *   **Functionality:** Selecting an instrument from this list instantly reloads the data for all tabs. If the selected instrument has not completed a necessary pipeline stage, relevant tabs or panels will be disabled with a message indicating what needs to be run (e.g., "Run the Diamond Backtester to enable strategy exploration").
+
+---
+
+#### **Tab 1: Mission Control (The Dashboard)**
+
+This is the strategic command center for the **currently selected instrument**. It provides an immediate overview of the pipeline's final output and live status.
+
+*   **Panel 1: Key Performance Indicators (KPIs)**
+    *   **Total Master Strategies:** A large, prominent number showing the count of strategies that passed the Diamond backtester for this instrument. Sourced directly from the `master_reports` file.
+    *   **Discovery Funnel:** A visual funnel graphic summarizing the results of the *last completed run* for the selected instrument. This provides a crucial overview of the pipeline's efficiency.
+        *   **Stage 1 (Bronze):** `1.2B Winning Possibilities Found`
+        *   **Stage 2 (Silver/Plat):** `45,000 Blueprints Discovered`
+        *   **Stage 3 (Platinum):** `8,500 Strategies Mined`
+        *   **Stage 4 (Diamond):** `22 Master Strategies Validated`
+
+*   **Panel 2: Live Process Monitor**
+    *   **Status:** A clear indicator showing `RUNNING` or `IDLE`.
+    *   **Current Stage:** If running, this displays the script currently being executed (e.g., `Executing: platinum_strategy_discoverer.py...`).
+    *   **Real-time Log Output:** A text area that tails the live console output from the currently running script for the selected instrument. This gives the user direct insight into the pipeline's progress and any immediate errors. If idle, it shows "No active processes for this instrument."
+
+---
+
+#### **Tab 2: Strategy Explorer (The Screener)**
+
+This is the primary discovery interface. It's a powerful data screener designed to filter the Master Strategies for the selected instrument down to a handful of candidates worthy of deep-dive analysis.
+
+*   **2.1: The Filtering & Query Panel**
+    *   **Blueprint Definition Filters:**
+        *   `Trade Type:` [Buy, Sell, All]
+        *   `SL Definition:` [ratio, support, resistance, SMA_50, etc.]
+        *   `TP Definition:` [ratio, resistance, BB_upper_20, etc.]
+    *   **In-Sample Performance Filters (Sliders):** (Based on the Master Backtest)
+        *   Profit Factor, SQN, Win Rate %, Calmar Ratio, Sharpe Ratio.
+    *   **Cross-Market Validation Filters (Sliders/Inputs):**
+        *   `Min. Markets Passed:` Only show strategies profitable on at least `X` validation markets.
+        *   `Avg. Cross-Market Profit Factor:` Filter by the *average* PF across all tested markets.
+        *   `Max Performance Divergence %:` Hides strategies where the PF on any validation market dropped by more than X% compared to the master backtest (a key robustness metric).
+
+*   **2.2: The Strategy Results Table**
+    This table updates in real-time as filters are applied. Each row represents one unique master strategy.
+
+| Equity Curve (Sparkline) | Trigger Key | Trade Type | Avg. PF (All Markets) | Avg. WR% (All Markets) | Markets Passed | Analyse |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `[Chart]` | `a1b2c3d4...` | `BUY` | `2.15` | `62%` | `4 of 5` | `[Button]` |
+| `[Chart]` | `e5f6g7h8...` | `SELL` | `1.89` | `54%` | `5 of 5` | `[Button]` |
+
+---
+
+#### **Tab 3: Strategy Analysis Workbench (The Deep Dive)**
+
+The microscope. Clicking "Analyse" on a strategy from the Explorer brings it into this multi-faceted workbench. The title of the tab dynamically updates to show the selected strategy's `trigger_key`.
+
+*   **Header:** Displays the full `Market Rule` and Blueprint definition for the selected strategy.
+
+*   **3.1: Sub-Tab: Master Backtest & Robustness Check**
+    *   **Left Panel:** Full performance metrics table, interactive equity curve, and a drawdown profile chart for the in-sample backtest.
+    *   **Right Panel: Monte Carlo Sensitivity Check:** A button that runs simulations with randomized trade orders and slight parameter variations to display a histogram of final equity outcomes, providing a powerful visual test of the strategy's fragility.
+
+*   **3.2: Sub-Tab: Cross-Market Gauntlet**
+    *   A large **Performance Heatmap Table** providing an immediate, powerful visualization of generalization.
+    *   **Rows:** Each market (Master, Validation 1, etc.).
+    *   **Columns:** Key metrics (Profit Factor, Win Rate, Total Trades, SQN, PnL per ATR).
+
+*   **3.3: Sub-Tab: Performance Analytics**
+    This section reveals the *why* behind the performance.
+    *   **Profitability by Duration:** Histogram of PnL distribution based on trade duration in candles.
+    *   **PnL / ATR Distribution:** Histogram of trade outcomes normalized by volatility (ATR at entry).
+    *   **Entry/Exit Timing Analysis:** Two heatmaps showing average PnL by `Day of Week` vs. `Hour of Day`.
+
+*   **3.4: Sub-Tab: Regime Pivot Analysis**
+    *   An interactive **Pivot Table interface** for ultimate analytical flexibility.
+    *   **Dimensions (Draggable):** `[Market, Session, Trend Regime, Volatility Regime]`
+    *   **Metrics (Selectable):** `[Profit Factor, Avg. PnL, Win Rate, Total Trades]`
+    *   Allows the user to instantly answer complex questions like, "How does this strategy perform in a 'ranging' market during the 'London' session across all tested GBP pairs?"
+
+*   **3.5: Sub-Tab: Trade Visualizer**
+    *   An interactive candlestick chart with controls for market and date range.
+    *   Overlays for all trades (entry/exit points, SL/TP levels).
+    *   Clicking a trade reveals a detail panel with its PnL and the values of the key market features at the time of entry.
+
+---
+
+#### **Tab 4: Pipeline Manager (The Engine Room)**
+
+The administrative interface for controlling and configuring the backend pipeline.
+
+*   **Section 1: Execution Queue**
+    *   A table showing all `[Instrument, Status, Start Time, Duration]` for currently running or queued processes across the entire system.
+    *   Controls to `[Stop]` a running process or `[Remove]` a queued one.
+
+*   **Section 2: Schedule a New Run**
+    *   **Instrument Selection:** Dropdown to select the target instrument for a new run.
+    *   **Run Type:** Dropdown `[Full Pipeline]` or specific scripts like `[Platinum Discoverer Only]`.
+    *   **Configuration Profile:** Dropdown to select a saved configuration profile.
+    *   Buttons: `[Add to Queue]` and `[Run Now]`.
+
+*   **Section 3: Configuration Profiles**
+    *   A UI for creating, editing, and saving different versions of the `config.py` settings (e.g., "Fast Discovery," "Deep Validation"). Key parameters are exposed as sliders and input boxes.
+
+*   **Section 4: Log Viewer**
+    *   A searchable, filterable interface for all historical `.log` files, crucial for debugging failed runs.

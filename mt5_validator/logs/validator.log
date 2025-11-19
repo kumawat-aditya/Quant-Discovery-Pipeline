@@ -1,0 +1,458 @@
+2025-11-18 18:01:39 - INFO     - __main__ - Initializing MT5 Live Strategy Validator...
+2025-11-19 10:37:24 - INFO     - __main__ - Initializing MT5 Live Strategy Validator...
+2025-11-19 10:41:05 - INFO     - __main__ - Initializing MT5 Live Strategy Validator...
+2025-11-19 10:41:57 - INFO     - __main__ - Initializing MT5 Live Strategy Validator...
+2025-11-19 10:48:57 - INFO     - __main__ - Initializing MT5 Live Strategy Validator...
+2025-11-19 11:00:51 - INFO     - __main__ - Initializing MT5 Live Strategy Validator...
+2025-11-19 11:00:51 - INFO     - strategy_loader - StrategyLoader initialized. Reading data from: C:\Users\qubit\Desktop\workshop\trading_strategy_finder\diamond_data and C:\Users\qubit\Desktop\workshop\trading_strategy_finder\platinum_data
+2025-11-19 14:19:52 - INFO     - __main__ - Initializing MT5 Live Strategy Validator...
+2025-11-19 14:19:52 - INFO     - strategy_loader - StrategyLoader initialized. Reading data from: C:\Users\qubit\Desktop\workshop\trading_strategy_finder\diamond_data.
+2025-11-19 14:20:42 - INFO     - __main__ - Initializing MT5 Live Strategy Validator...
+2025-11-19 14:20:42 - INFO     - strategy_loader - StrategyLoader initialized. Reading data from: C:\Users\qubit\Desktop\workshop\trading_strategy_finder\diamond_data.
+2025-11-19 14:20:42 - INFO     - data_engine - DataEngine initialized for symbols: ['EURUSD'] on timeframe 15 with a cache size of 500 bars.
+2025-11-19 14:20:42 - INFO     - feature_engine - FeatureEngine initialized. Using indicator parameters from research config.
+2025-11-19 14:21:59 - INFO     - __main__ - Initializing MT5 Live Strategy Validator...
+2025-11-19 14:21:59 - INFO     - strategy_loader - StrategyLoader initialized. Reading data from: C:\Users\qubit\Desktop\workshop\trading_strategy_finder\diamond_data.
+2025-11-19 14:21:59 - INFO     - data_engine - DataEngine initialized for symbols: ['EURUSD'] on timeframe 15 with a cache size of 500 bars.
+2025-11-19 14:21:59 - INFO     - feature_engine - FeatureEngine initialized. Using indicator parameters from research config.
+2025-11-19 14:31:55 - INFO     - __main__ - Initializing MT5 Live Strategy Validator...
+2025-11-19 14:31:55 - INFO     - strategy_loader - StrategyLoader initialized. Reading data from: C:\Users\qubit\Desktop\workshop\trading_strategy_finder\diamond_data.
+2025-11-19 14:31:55 - INFO     - data_engine - DataEngine initialized for symbols: ['EURUSD'] on timeframe 15 with a cache size of 500 bars.
+2025-11-19 14:31:55 - INFO     - feature_engine - FeatureEngine initialized. Using indicator parameters from research config.
+2025-11-19 14:31:55 - INFO     - __main__ - --- Validator Starting Up ---
+2025-11-19 14:31:55 - INFO     - mt5_connector - Attempting to initialize MetaTrader 5 terminal...
+2025-11-19 14:31:58 - INFO     - mt5_connector - MT5 terminal initialized successfully.
+2025-11-19 14:31:58 - INFO     - mt5_connector - Successfully connected to account 99066452 on MetaQuotes-Demo.
+2025-11-19 14:31:58 - INFO     - mt5_connector - Broker: MetaQuotes Ltd., Platform: Qubitron Labs
+2025-11-19 14:31:58 - INFO     - trading_engine - TradingEngine initialized.
+2025-11-19 14:31:58 - INFO     - __main__ - Attempting to load strategies for EURUSD60...
+2025-11-19 14:31:58 - ERROR    - strategy_loader - Master strategies report not found at: C:\Users\qubit\Desktop\workshop\trading_strategy_finder\diamond_data\master_reports\EURUSD60.parquet
+2025-11-19 14:31:58 - WARNING  - __main__ - No master strategies found for EURUSD60. It will not be traded.
+2025-11-19 14:31:58 - ERROR    - __main__ - No strategies were loaded for any tracked symbols. Aborting startup.
+2025-11-19 14:31:58 - INFO     - mt5_connector - Disconnected from MetaTrader 5. Connection was active for 0.00 seconds.
+2025-11-19 14:31:58 - INFO     - __main__ - --- Validator Shutting Down ---
+2025-11-19 14:31:58 - INFO     - mt5_connector - No active connection to disconnect.
+2025-11-19 14:31:58 - INFO     - __main__ - --- Shutdown Complete. ---
+2025-11-19 14:34:32 - INFO     - __main__ - Initializing MT5 Live Strategy Validator...
+2025-11-19 14:34:32 - INFO     - strategy_loader - StrategyLoader initialized. Reading data from: C:\Users\qubit\Desktop\workshop\trading_strategy_finder\diamond_data.
+2025-11-19 14:34:32 - INFO     - data_engine - DataEngine initialized for symbols: ['EURUSD'] on timeframe 15 with a cache size of 500 bars.
+2025-11-19 14:34:32 - INFO     - feature_engine - FeatureEngine initialized. Using indicator parameters from research config.
+2025-11-19 14:34:32 - INFO     - __main__ - --- Validator Starting Up ---
+2025-11-19 14:34:32 - INFO     - mt5_connector - Attempting to initialize MetaTrader 5 terminal...
+2025-11-19 14:34:32 - INFO     - mt5_connector - MT5 terminal initialized successfully.
+2025-11-19 14:34:32 - INFO     - mt5_connector - Successfully connected to account 99066452 on MetaQuotes-Demo.
+2025-11-19 14:34:32 - INFO     - mt5_connector - Broker: MetaQuotes Ltd., Platform: Qubitron Labs
+2025-11-19 14:34:32 - INFO     - trading_engine - TradingEngine initialized.
+2025-11-19 14:34:32 - INFO     - __main__ - Attempting to load strategies for EURUSD60...
+2025-11-19 14:34:32 - ERROR    - strategy_loader - Master strategies report not found at: C:\Users\qubit\Desktop\workshop\trading_strategy_finder\diamond_data\master_reports\EURUSD60.parquet
+2025-11-19 14:34:32 - WARNING  - __main__ - No master strategies found for EURUSD60. It will not be traded.
+2025-11-19 14:34:32 - ERROR    - __main__ - No strategies were loaded for any tracked symbols. Aborting startup.
+2025-11-19 14:34:32 - INFO     - mt5_connector - Disconnected from MetaTrader 5. Connection was active for 0.00 seconds.
+2025-11-19 14:34:32 - INFO     - __main__ - --- Validator Shutting Down ---
+2025-11-19 14:34:32 - INFO     - mt5_connector - No active connection to disconnect.
+2025-11-19 14:34:32 - INFO     - __main__ - --- Shutdown Complete. ---
+2025-11-19 14:42:25 - INFO     - __main__ - Initializing MT5 Live Strategy Validator...
+2025-11-19 14:42:25 - INFO     - strategy_loader - StrategyLoader initialized. Reading data from: C:\Users\qubit\Desktop\workshop\trading_strategy_finder\diamond_data.
+2025-11-19 14:42:25 - INFO     - data_engine - DataEngine initialized for symbols: ['EURUSD'] on timeframe 15 with a cache size of 500 bars.
+2025-11-19 14:42:25 - INFO     - feature_engine - FeatureEngine initialized. Using indicator parameters from research config.
+2025-11-19 14:42:25 - INFO     - __main__ - --- Validator Starting Up ---
+2025-11-19 14:42:25 - INFO     - mt5_connector - Attempting to initialize MetaTrader 5 terminal...
+2025-11-19 14:42:28 - INFO     - mt5_connector - MT5 terminal initialized successfully.
+2025-11-19 14:42:28 - INFO     - mt5_connector - Successfully connected to account 99066452 on MetaQuotes-Demo.
+2025-11-19 14:42:28 - INFO     - mt5_connector - Broker: MetaQuotes Ltd., Platform: Qubitron Labs
+2025-11-19 14:42:28 - INFO     - trading_engine - TradingEngine initialized.
+2025-11-19 14:42:28 - INFO     - __main__ - Attempting to load strategies for EURUSD15...
+2025-11-19 14:42:28 - INFO     - strategy_loader - Loading master strategies for EURUSD15...
+2025-11-19 14:42:29 - ERROR    - strategy_loader - An unexpected error occurred while loading strategies for EURUSD15: name 'combinations_df' is not defined
+Traceback (most recent call last):
+  File "C:\Users\qubit\Desktop\workshop\trading_strategy_finder\mt5_validator\strategy_loader.py", line 86, in load_master_strategies
+    combinations_df[blueprint_cols],
+NameError: name 'combinations_df' is not defined
+2025-11-19 14:42:29 - WARNING  - __main__ - No master strategies found for EURUSD15. It will not be traded.
+2025-11-19 14:42:29 - ERROR    - __main__ - No strategies were loaded for any tracked symbols. Aborting startup.
+2025-11-19 14:42:29 - INFO     - mt5_connector - Disconnected from MetaTrader 5. Connection was active for 0.90 seconds.
+2025-11-19 14:42:29 - INFO     - __main__ - --- Validator Shutting Down ---
+2025-11-19 14:42:29 - INFO     - mt5_connector - No active connection to disconnect.
+2025-11-19 14:42:29 - INFO     - __main__ - --- Shutdown Complete. ---
+2025-11-19 14:46:19 - INFO     - __main__ - Initializing MT5 Live Strategy Validator...
+2025-11-19 14:46:19 - INFO     - strategy_loader - StrategyLoader initialized. Reading data from: C:\Users\qubit\Desktop\workshop\trading_strategy_finder\diamond_data.
+2025-11-19 14:46:19 - INFO     - data_engine - DataEngine initialized for symbols: ['EURUSD'] on timeframe 15 with a cache size of 500 bars.
+2025-11-19 14:46:19 - INFO     - feature_engine - FeatureEngine initialized. Using indicator parameters from research config.
+2025-11-19 14:46:19 - INFO     - __main__ - --- Validator Starting Up ---
+2025-11-19 14:46:19 - INFO     - mt5_connector - Attempting to initialize MetaTrader 5 terminal...
+2025-11-19 14:46:19 - INFO     - mt5_connector - MT5 terminal initialized successfully.
+2025-11-19 14:46:19 - INFO     - mt5_connector - Successfully connected to account 99066452 on MetaQuotes-Demo.
+2025-11-19 14:46:19 - INFO     - mt5_connector - Broker: MetaQuotes Ltd., Platform: Qubitron Labs
+2025-11-19 14:46:19 - INFO     - trading_engine - TradingEngine initialized.
+2025-11-19 14:46:19 - INFO     - __main__ - Attempting to load strategies for EURUSD15...
+2025-11-19 14:46:19 - INFO     - strategy_loader - Loading master strategies for EURUSD15...
+2025-11-19 14:46:19 - ERROR    - strategy_loader - An unexpected error occurred while loading strategies for EURUSD15: name 'combinations_df' is not defined
+Traceback (most recent call last):
+  File "C:\Users\qubit\Desktop\workshop\trading_strategy_finder\mt5_validator\strategy_loader.py", line 86, in load_master_strategies
+    combinations_df[blueprint_cols],
+NameError: name 'combinations_df' is not defined
+2025-11-19 14:46:19 - WARNING  - __main__ - No master strategies found for EURUSD15. It will not be traded.
+2025-11-19 14:46:19 - ERROR    - __main__ - No strategies were loaded for any tracked symbols. Aborting startup.
+2025-11-19 14:46:19 - INFO     - mt5_connector - Disconnected from MetaTrader 5. Connection was active for 0.05 seconds.
+2025-11-19 14:46:19 - INFO     - __main__ - --- Validator Shutting Down ---
+2025-11-19 14:46:19 - INFO     - mt5_connector - No active connection to disconnect.
+2025-11-19 14:46:19 - INFO     - __main__ - --- Shutdown Complete. ---
+2025-11-19 14:51:14 - INFO     - __main__ - Initializing MT5 Live Strategy Validator...
+2025-11-19 14:51:14 - INFO     - strategy_loader - StrategyLoader initialized. Reading data from: C:\Users\qubit\Desktop\workshop\trading_strategy_finder\diamond_data.
+2025-11-19 14:51:14 - INFO     - data_engine - DataEngine initialized for symbols: ['EURUSD'] on timeframe 15 with a cache size of 500 bars.
+2025-11-19 14:51:14 - INFO     - feature_engine - FeatureEngine initialized. Using indicator parameters from research config.
+2025-11-19 14:51:14 - INFO     - __main__ - --- Validator Starting Up ---
+2025-11-19 14:51:14 - INFO     - mt5_connector - Attempting to initialize MetaTrader 5 terminal...
+2025-11-19 14:51:14 - INFO     - mt5_connector - MT5 terminal initialized successfully.
+2025-11-19 14:51:14 - INFO     - mt5_connector - Successfully connected to account 99066452 on MetaQuotes-Demo.
+2025-11-19 14:51:14 - INFO     - mt5_connector - Broker: MetaQuotes Ltd., Platform: Qubitron Labs
+2025-11-19 14:51:14 - INFO     - trading_engine - TradingEngine initialized.
+2025-11-19 14:51:14 - INFO     - __main__ - Attempting to load strategies for EURUSD15...
+2025-11-19 14:51:14 - INFO     - strategy_loader - Loading master strategies for EURUSD15...
+2025-11-19 14:51:15 - INFO     - strategy_loader - Successfully loaded 345 master strategies.
+2025-11-19 14:51:15 - INFO     - __main__ - Loaded 345 strategies for EURUSD.
+2025-11-19 14:51:15 - INFO     - data_engine - Prefilling historical data cache for all symbols...
+2025-11-19 14:51:15 - INFO     - data_engine - Successfully cached 500 bars for EURUSD.
+2025-11-19 14:51:15 - INFO     - data_engine - Historical data cache has been successfully prefilled.
+2025-11-19 14:51:15 - INFO     - __main__ - --- Validator Startup Complete. Entering Main Loop. ---
+2025-11-19 14:51:20 - ERROR    - __main__ - Error evaluating rule for strategy 5745447e863e4dd1: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:20 - ERROR    - __main__ - Error evaluating rule for strategy a1b023e9b2040ca6: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:20 - ERROR    - __main__ - Error evaluating rule for strategy e22a122c385224ef: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:20 - ERROR    - __main__ - Error evaluating rule for strategy 4d85b7c36db54ca6: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:20 - ERROR    - __main__ - Error evaluating rule for strategy e1bbc1cabdd6bfc3: name 'avg_range_last_10' is not defined
+2025-11-19 14:51:20 - ERROR    - __main__ - Error evaluating rule for strategy 27b7795a9bebd223: name 'avg_range_last_10' is not defined
+2025-11-19 14:51:20 - ERROR    - __main__ - Error evaluating rule for strategy 8e14dddb1d65917f: name 'avg_range_last_10' is not defined
+2025-11-19 14:51:20 - ERROR    - __main__ - Error evaluating rule for strategy 5eef4e82c6b933b5: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy 23bcb1b55097c136: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy 8d51fd56c4b65b98: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy 0c29a50ec935041b: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy 224a85f5c31c65d8: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy 99373bf2161e4aea: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy 962904875adc8148: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy 2766512ea61cb9d7: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy 7fe61a72e0cd99c6: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy 2ccd5c1659c12f58: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy f80882e545916773: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy b07f3f097bedfaef: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy ee5f278a020db88e: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy 511da8f331f0a8f7: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy b7417179388bf3aa: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy 19dcd7b20db138b0: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy b5e6318b44656b8b: name 'CCI_20' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy 46df7a435bf79480: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy 7748fd89376ac59f: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy a7f60a290c85f56c: name 'CCI_20' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy dc9b83b0ebe714cf: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy 58b22f0a26eaa66f: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy 22231a396bab6692: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy 78866b45813c0db3: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy 25b9ee90c3cf3027: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy b649d2da7fde5a16: name 'CCI_20' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy b01713e2761fa66d: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy 000637d384bafa19: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy 6ffaba195656976f: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy e1c834562efaa4e8: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy 7822d477c9de9713: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy 81b2004ec87bcd2d: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy bf4b57847396b3b8: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy 91bea43258f24200: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:21 - ERROR    - __main__ - Error evaluating rule for strategy 3fc65012242657cb: name 'avg_range_last_10' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy 23e7b847b1ebc7a5: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy 86caf16ac26446fe: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy c59b8a37d07e5d1d: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy 515d0e4986e01b06: name 'CCI_20' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy 5c0ac1acc44509b1: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy f09f4399444a4175: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy 6cbad874c3637f43: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy ffc299224c70545b: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy 1ac201adf7754094: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy 3b3eabd89f581860: name 'avg_range_last_3' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy 10713803f383824d: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy 97ffd3ef309e9981: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy ca774acf6ba5d457: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy 8427fda4e2921e42: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy 051bcc328ee91da8: name 'avg_range_last_5' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy 695daa7a52fef587: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy bd3a7eeb9bef6b8d: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy 8900144a11dd7384: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy c76682eb0e7aec74: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy 331edd3b4e6cfe49: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy 20085c873295198c: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy 8e9dac066619959e: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy 141ecc0f78fff284: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy 106ea34c635b872c: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy 7703aeb07fb6bd61: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy 80f98468f1de49c9: name 'avg_range_last_5' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy 72f61935768e691b: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy 56af473eb828fbd8: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy 0cd63898710eaa53: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:22 - ERROR    - __main__ - Error evaluating rule for strategy 6c29fceeabf3de27: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy 64629e276a23fc1f: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy bbb48b0ec1ee10cc: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy ae3b0d46048c1869: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy ad8f7d2079748f76: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy 73d7512a33131d03: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy a1a1c64fc9298b34: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy a2ae3a973d61b0b8: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy 545bfd89ad4c63f3: name 'CCI_20' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy 4fc12daabe27dcd4: name 'avg_range_last_10' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy 3053964e616eeb36: name 'avg_range_last_10' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy 26d3714cd066d3d0: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy 0534b06366cb51f8: name 'avg_range_last_10' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy 142ca7e1bb3f334d: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy 4a0c9b0688eb65a8: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy b283334d667ee93e: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy 543bdcc10fb06c50: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy a458e45f50700d52: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy bfb1217845c13a0d: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy 35998910763566e3: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy c58b20451a763137: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy 49b95943be893d3e: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy ad594c2d0224f323: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy fb38dad280e68e04: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy a263034d83ceb331: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy 76cfa51d66e082fa: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy a1a4e27d5bb5edf0: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy 9b9c833d28405ee6: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy adb2d92537e9434a: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy de4ca303d22fec89: name 'CCI_20' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy 2f29168e0f1a13cc: name 'CCI_20' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy a306870ae4d91e19: name 'CCI_20' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy e7615ecd2488ed26: name 'CCI_20' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy 63628339ab25274f: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy 26ff769970d51b45: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy c9f0b799d6a3e02b: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:23 - ERROR    - __main__ - Error evaluating rule for strategy 306751acda8aa95b: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:24 - ERROR    - __main__ - Error evaluating rule for strategy 6cbf7a794e62263d: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:24 - ERROR    - __main__ - Error evaluating rule for strategy 59d94c3d144d4a98: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:24 - ERROR    - __main__ - Error evaluating rule for strategy e38f0692720d5c68: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:24 - INFO     - __main__ - Keyboard interrupt received. Shutting down...
+2025-11-19 14:51:46 - INFO     - __main__ - Initializing MT5 Live Strategy Validator...
+2025-11-19 14:51:46 - INFO     - strategy_loader - StrategyLoader initialized. Reading data from: C:\Users\qubit\Desktop\workshop\trading_strategy_finder\diamond_data.
+2025-11-19 14:51:46 - INFO     - data_engine - DataEngine initialized for symbols: ['EURUSD'] on timeframe 15 with a cache size of 500 bars.
+2025-11-19 14:51:46 - INFO     - feature_engine - FeatureEngine initialized. Using indicator parameters from research config.
+2025-11-19 14:51:46 - INFO     - __main__ - --- Validator Starting Up ---
+2025-11-19 14:51:46 - INFO     - mt5_connector - Attempting to initialize MetaTrader 5 terminal...
+2025-11-19 14:51:46 - INFO     - mt5_connector - MT5 terminal initialized successfully.
+2025-11-19 14:51:46 - INFO     - mt5_connector - Successfully connected to account 99066452 on MetaQuotes-Demo.
+2025-11-19 14:51:46 - INFO     - mt5_connector - Broker: MetaQuotes Ltd., Platform: Qubitron Labs
+2025-11-19 14:51:46 - INFO     - trading_engine - TradingEngine initialized.
+2025-11-19 14:51:46 - INFO     - __main__ - Attempting to load strategies for EURUSD15...
+2025-11-19 14:51:46 - INFO     - strategy_loader - Loading master strategies for EURUSD15...
+2025-11-19 14:51:46 - INFO     - strategy_loader - Successfully loaded 345 master strategies.
+2025-11-19 14:51:46 - INFO     - __main__ - Loaded 345 strategies for EURUSD.
+2025-11-19 14:51:46 - INFO     - data_engine - Prefilling historical data cache for all symbols...
+2025-11-19 14:51:46 - INFO     - data_engine - Successfully cached 500 bars for EURUSD.
+2025-11-19 14:51:46 - INFO     - data_engine - Historical data cache has been successfully prefilled.
+2025-11-19 14:51:46 - INFO     - __main__ - --- Validator Startup Complete. Entering Main Loop. ---
+2025-11-19 14:51:48 - ERROR    - __main__ - Error evaluating rule for strategy 5745447e863e4dd1: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:48 - ERROR    - __main__ - Error evaluating rule for strategy a1b023e9b2040ca6: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:48 - ERROR    - __main__ - Error evaluating rule for strategy e22a122c385224ef: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:48 - ERROR    - __main__ - Error evaluating rule for strategy 4d85b7c36db54ca6: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:48 - ERROR    - __main__ - Error evaluating rule for strategy e1bbc1cabdd6bfc3: name 'avg_range_last_10' is not defined
+2025-11-19 14:51:48 - ERROR    - __main__ - Error evaluating rule for strategy 27b7795a9bebd223: name 'avg_range_last_10' is not defined
+2025-11-19 14:51:48 - ERROR    - __main__ - Error evaluating rule for strategy 8e14dddb1d65917f: name 'avg_range_last_10' is not defined
+2025-11-19 14:51:48 - ERROR    - __main__ - Error evaluating rule for strategy 5eef4e82c6b933b5: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:48 - ERROR    - __main__ - Error evaluating rule for strategy 23bcb1b55097c136: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:48 - ERROR    - __main__ - Error evaluating rule for strategy 8d51fd56c4b65b98: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:48 - ERROR    - __main__ - Error evaluating rule for strategy 0c29a50ec935041b: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:48 - ERROR    - __main__ - Error evaluating rule for strategy 224a85f5c31c65d8: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy 99373bf2161e4aea: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy 962904875adc8148: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy 2766512ea61cb9d7: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy 7fe61a72e0cd99c6: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy 2ccd5c1659c12f58: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy f80882e545916773: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy b07f3f097bedfaef: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy ee5f278a020db88e: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy 511da8f331f0a8f7: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy b7417179388bf3aa: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy 19dcd7b20db138b0: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy b5e6318b44656b8b: name 'CCI_20' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy 46df7a435bf79480: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy 7748fd89376ac59f: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy a7f60a290c85f56c: name 'CCI_20' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy dc9b83b0ebe714cf: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy 58b22f0a26eaa66f: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy 22231a396bab6692: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy 78866b45813c0db3: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy 25b9ee90c3cf3027: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy b649d2da7fde5a16: name 'CCI_20' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy b01713e2761fa66d: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy 000637d384bafa19: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy 6ffaba195656976f: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy e1c834562efaa4e8: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy 7822d477c9de9713: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy 81b2004ec87bcd2d: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy bf4b57847396b3b8: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy 91bea43258f24200: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy 3fc65012242657cb: name 'avg_range_last_10' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy 23e7b847b1ebc7a5: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy 86caf16ac26446fe: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy c59b8a37d07e5d1d: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy 515d0e4986e01b06: name 'CCI_20' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy 5c0ac1acc44509b1: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:49 - ERROR    - __main__ - Error evaluating rule for strategy f09f4399444a4175: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy 6cbad874c3637f43: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy ffc299224c70545b: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy 1ac201adf7754094: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy 3b3eabd89f581860: name 'avg_range_last_3' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy 10713803f383824d: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy 97ffd3ef309e9981: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy ca774acf6ba5d457: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy 8427fda4e2921e42: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy 051bcc328ee91da8: name 'avg_range_last_5' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy 695daa7a52fef587: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy bd3a7eeb9bef6b8d: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy 8900144a11dd7384: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy c76682eb0e7aec74: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy 331edd3b4e6cfe49: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy 20085c873295198c: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy 8e9dac066619959e: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy 141ecc0f78fff284: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy 106ea34c635b872c: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy 7703aeb07fb6bd61: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy 80f98468f1de49c9: name 'avg_range_last_5' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy 72f61935768e691b: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy 56af473eb828fbd8: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy 0cd63898710eaa53: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy 6c29fceeabf3de27: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy 64629e276a23fc1f: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy bbb48b0ec1ee10cc: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy ae3b0d46048c1869: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy ad8f7d2079748f76: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy 73d7512a33131d03: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy a1a1c64fc9298b34: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:50 - ERROR    - __main__ - Error evaluating rule for strategy a2ae3a973d61b0b8: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy 545bfd89ad4c63f3: name 'CCI_20' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy 4fc12daabe27dcd4: name 'avg_range_last_10' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy 3053964e616eeb36: name 'avg_range_last_10' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy 26d3714cd066d3d0: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy 0534b06366cb51f8: name 'avg_range_last_10' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy 142ca7e1bb3f334d: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy 4a0c9b0688eb65a8: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy b283334d667ee93e: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy 543bdcc10fb06c50: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy a458e45f50700d52: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy bfb1217845c13a0d: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy 35998910763566e3: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy c58b20451a763137: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy 49b95943be893d3e: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy ad594c2d0224f323: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy fb38dad280e68e04: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy a263034d83ceb331: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy 76cfa51d66e082fa: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy a1a4e27d5bb5edf0: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy 9b9c833d28405ee6: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy adb2d92537e9434a: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy de4ca303d22fec89: name 'CCI_20' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy 2f29168e0f1a13cc: name 'CCI_20' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy a306870ae4d91e19: name 'CCI_20' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy e7615ecd2488ed26: name 'CCI_20' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy 63628339ab25274f: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy 26ff769970d51b45: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy c9f0b799d6a3e02b: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy 306751acda8aa95b: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy 6cbf7a794e62263d: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy 59d94c3d144d4a98: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy e38f0692720d5c68: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy 91fca7e2687df277: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy b65581c29c509891: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy 1cda9d600848151f: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy 2f4e79a3019fb581: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:51 - ERROR    - __main__ - Error evaluating rule for strategy 40357d5acc39225a: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy 12a9167d5650b46a: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy 9dc09173df672153: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy 542120cd64360cd3: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy 8a63fc605743b65b: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy 73610b1abc795b4c: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy ed61830bd9542f83: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy ad9f9e59985b6469: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy 5c4bbe8a33c1ffb4: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy e661ea927e0ef8a3: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy 4c5f1ece2265eed8: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy 6801b49b8dac434b: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy 216a59b38d930237: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy 7aed7653947b662f: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy 74e181c5e8f5cbe0: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy 548df20344af345f: name 'avg_range_last_10' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy 7d1ee71abc4b43c3: name 'avg_range_last_10' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy b762fb763c69ca7f: name 'avg_range_last_10' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy 2916bb04ee2d3fb4: name 'avg_range_last_3' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy b77d80c86f405fc6: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy d985cb29ad46ca39: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy 4f38b4f263ffe127: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy fd25269dc11cfebb: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy 2ce821c9dc6fbd24: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy 2f417e5396ff6f3f: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy 67fc3987610d0f85: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy a57801183efcdf89: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy 846330fea8cb7583: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy 33be501a626bc8d4: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy 90aebe287ac0a2df: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy 065b516857be981d: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy da225109724a4e3a: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy 9f04ba6a53c7d4c3: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy b812dbeb0627fcf5: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy e801008b57119a24: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:52 - ERROR    - __main__ - Error evaluating rule for strategy e82da3c41feddbec: name 'MOM_10' is not defined
+2025-11-19 14:51:53 - ERROR    - __main__ - Error evaluating rule for strategy faecb1bcce494677: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:53 - ERROR    - __main__ - Error evaluating rule for strategy 665e720ba74ea5e9: name 'avg_range_last_10' is not defined
+2025-11-19 14:51:53 - ERROR    - __main__ - Error evaluating rule for strategy 36a06a48de9a4a7b: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:53 - ERROR    - __main__ - Error evaluating rule for strategy 27ae9dd87dde99c8: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:53 - ERROR    - __main__ - Error evaluating rule for strategy d76e6e816c6c108b: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:53 - ERROR    - __main__ - Error evaluating rule for strategy ca7c1ea96491d81c: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:53 - ERROR    - __main__ - Error evaluating rule for strategy da89d0a5c40aed71: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:53 - ERROR    - __main__ - Error evaluating rule for strategy b48428b0db89a22e: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:53 - ERROR    - __main__ - Error evaluating rule for strategy bf4bef63691b4b14: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:53 - ERROR    - __main__ - Error evaluating rule for strategy e659035b0fc7dadb: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:53 - ERROR    - __main__ - Error evaluating rule for strategy fdb416eb114d62a1: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:53 - ERROR    - __main__ - Error evaluating rule for strategy 63f4cfdfee592abe: name 'avg_range_last_20' is not defined
+2025-11-19 14:51:53 - ERROR    - __main__ - Error evaluating rule for strategy eaf7f3e45f911f78: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:53 - ERROR    - __main__ - Error evaluating rule for strategy 5786883933a64630: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:53 - ERROR    - __main__ - Error evaluating rule for strategy f63aa4ba50f5d791: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:53 - ERROR    - __main__ - Error evaluating rule for strategy 56e6955b2108147c: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:53 - ERROR    - __main__ - Error evaluating rule for strategy f8479670d5406e26: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:53 - ERROR    - __main__ - Error evaluating rule for strategy 687cde4428ff069d: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:53 - ERROR    - __main__ - Error evaluating rule for strategy 8dec64b4b17ea30a: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:53 - ERROR    - __main__ - Error evaluating rule for strategy 392bbd56be178138: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:53 - ERROR    - __main__ - Error evaluating rule for strategy 49fba6bb0f61f3ee: name 'avg_range_last_50' is not defined
+2025-11-19 14:51:53 - ERROR    - __main__ - Error evaluating rule for strategy 4aae192f8ada03f6: name 'avg_range_last_50' is not defined
+2025-11-19 14:52:18 - INFO     - __main__ - Keyboard interrupt received. Shutting down...
+2025-11-19 15:09:04 - INFO     - __main__ - Initializing MT5 Live Strategy Validator...
+2025-11-19 15:09:04 - INFO     - strategy_loader - StrategyLoader initialized. Reading data from: C:\Users\qubit\Desktop\workshop\trading_strategy_finder\diamond_data.
+2025-11-19 15:09:04 - INFO     - data_engine - DataEngine initialized for symbols: ['EURUSD'] on timeframe 15 with a cache size of 500 bars.
+2025-11-19 15:09:04 - INFO     - feature_engine - FeatureEngine initialized. Using indicator parameters from research config.
+2025-11-19 15:09:04 - INFO     - __main__ - --- Validator Starting Up ---
+2025-11-19 15:09:04 - INFO     - mt5_connector - Attempting to initialize MetaTrader 5 terminal...
+2025-11-19 15:09:04 - INFO     - mt5_connector - MT5 terminal initialized successfully.
+2025-11-19 15:09:04 - INFO     - mt5_connector - Successfully connected to account 99066452 on MetaQuotes-Demo.
+2025-11-19 15:09:04 - INFO     - mt5_connector - Broker: MetaQuotes Ltd., Platform: Qubitron Labs
+2025-11-19 15:09:04 - INFO     - trading_engine - TradingEngine initialized.
+2025-11-19 15:09:04 - INFO     - __main__ - Attempting to load strategies for EURUSD15...
+2025-11-19 15:09:04 - INFO     - strategy_loader - Loading master strategies for EURUSD15...
+2025-11-19 15:09:04 - INFO     - strategy_loader - Successfully loaded 345 master strategies.
+2025-11-19 15:09:04 - INFO     - __main__ - Loaded 345 strategies for EURUSD.
+2025-11-19 15:09:04 - INFO     - data_engine - Prefilling historical data cache for all symbols...
+2025-11-19 15:09:04 - INFO     - data_engine - Successfully cached 500 bars for EURUSD.
+2025-11-19 15:09:04 - INFO     - data_engine - Historical data cache has been successfully prefilled.
+2025-11-19 15:09:04 - INFO     - __main__ - --- Validator Startup Complete. Entering Main Loop. ---
+2025-11-19 15:09:06 - INFO     - __main__ - Keyboard interrupt received. Shutting down...
+2025-11-19 15:09:10 - INFO     - __main__ - Initializing MT5 Live Strategy Validator...
+2025-11-19 15:09:10 - INFO     - strategy_loader - StrategyLoader initialized. Reading data from: C:\Users\qubit\Desktop\workshop\trading_strategy_finder\diamond_data.
+2025-11-19 15:09:10 - INFO     - data_engine - DataEngine initialized for symbols: ['EURUSD'] on timeframe 15 with a cache size of 500 bars.
+2025-11-19 15:09:10 - INFO     - feature_engine - FeatureEngine initialized. Using indicator parameters from research config.
+2025-11-19 15:09:10 - INFO     - __main__ - --- Validator Starting Up ---
+2025-11-19 15:09:10 - INFO     - mt5_connector - Attempting to initialize MetaTrader 5 terminal...
+2025-11-19 15:09:10 - INFO     - mt5_connector - MT5 terminal initialized successfully.
+2025-11-19 15:09:10 - INFO     - mt5_connector - Successfully connected to account 99066452 on MetaQuotes-Demo.
+2025-11-19 15:09:10 - INFO     - mt5_connector - Broker: MetaQuotes Ltd., Platform: Qubitron Labs
+2025-11-19 15:09:10 - INFO     - trading_engine - TradingEngine initialized.
+2025-11-19 15:09:10 - INFO     - __main__ - Attempting to load strategies for EURUSD15...
+2025-11-19 15:09:10 - INFO     - strategy_loader - Loading master strategies for EURUSD15...
+2025-11-19 15:09:10 - INFO     - strategy_loader - Successfully loaded 345 master strategies.
+2025-11-19 15:09:10 - INFO     - __main__ - Loaded 345 strategies for EURUSD.
+2025-11-19 15:09:10 - INFO     - data_engine - Prefilling historical data cache for all symbols...
+2025-11-19 15:09:10 - INFO     - data_engine - Successfully cached 500 bars for EURUSD.
+2025-11-19 15:09:10 - INFO     - data_engine - Historical data cache has been successfully prefilled.
+2025-11-19 15:09:10 - INFO     - __main__ - --- Validator Startup Complete. Entering Main Loop. ---
