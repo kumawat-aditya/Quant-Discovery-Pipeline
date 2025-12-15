@@ -51,14 +51,20 @@ except ImportError:
     logging.critical("'pyarrow' library not found. Please run 'pip install pyarrow' to continue.")
     sys.exit(1)
 
+from utils.file_selector import scan_new_files, select_files_interactively
+
+new_files = scan_new_files(RAW_DATA_DIR, BRONZE_DATA_DIR)
+files_to_process = select_files_interactively(new_files)
+
+
 # --- PROJECT-LEVEL IMPORTS ---
 # Assumes config.py is in the parent directory of this script's location
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname(SCRIPT_DIR))
 
 try:
-    import config
-    from scripts.logger_setup import setup_logging
+    import config.config as config
+    from config.logger_setup import setup_logging
 except ImportError as e:
     logging.critical(f"Failed to import project modules. Ensure config.py and logger_setup.py are accessible: {e}")
     sys.exit(1)

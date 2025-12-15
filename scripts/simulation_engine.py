@@ -18,7 +18,7 @@ import pandas as pd
 import os
 
 # Import the main config file to access simulation parameters
-import config
+import config.config as config
 
 # --- Worker Globals (Populated by the init_worker function) ---
 worker_silver_features_df: pd.DataFrame
