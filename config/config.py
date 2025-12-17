@@ -61,24 +61,56 @@ SILVER_INDICATOR_WARMUP_PERIOD: int = 200
 # The number of rows to read from the Bronze Parquet file in each batch during enrichment.
 SILVER_PARQUET_BATCH_SIZE: int = 500_000
 
-# --- Technical Indicator Parameters ---
+# --- Technical Indicator Parameters (Feature Space) ---
 # These lists and values define the feature engineering space.
+
+# 1. Trend & Moving Averages
 SMA_PERIODS: list[int] = [20, 50, 100, 200]
 EMA_PERIODS: list[int] = [8, 13, 21, 50]
+
+# 2. Volatility
 BBANDS_PERIODS: list[int] = [20]
-RSI_PERIODS: list[int] = [14]
-ATR_PERIODS: list[int] = [14]
-ADX_PERIODS: list[int] = [14]
 BBANDS_STD_DEV: float = 2.0
+ATR_PERIODS: list[int] = [14]
+
+# 3. Momentum
+RSI_PERIODS: list[int] = [14]
+ADX_PERIODS: list[int] = [14]
+CCI_PERIODS: list[int] = [20]  # Changed from hardcoded 20 to a list
+MOM_PERIODS: list[int] = [10]  # Changed from hardcoded 10 to a list
+
+# 4. MACD
 MACD_FAST: int = 12
 MACD_SLOW: int = 26
 MACD_SIGNAL: int = 9
+
+# --- Market Structure & Regimes (Dynamic Logic) ---
 
 # The lookback window on each side for identifying fractal S/R points.
 PIVOT_WINDOW: int = 10
 
 # The rolling window sizes for calculating price action features (e.g., avg_body_last_10).
 PAST_LOOKBACKS: list[int] = [3, 5, 10, 20, 50]
+
+# ADX Threshold: Values above this are considered "Trend", below is "Range"
+ADX_TREND_THRESHOLD: int = 25
+
+# Volatility Regime: The rolling window to calculate the average ATR.
+# Current ATR > Average ATR(Window) = "High Volatility"
+ATR_MA_WINDOW: int = 50
+
+# ATR Bands: Multipliers to create dynamic S/R levels (e.g., Close + 1*ATR, Close + 2*ATR)
+# This allows the ML to find relationships with dynamic volatility bands.
+ATR_BAND_MULTIPLIERS: list[float] = [1.0, 2.0]
+
+# Market Sessions Configuration (UTC)
+# Bins define the hour cutoffs. Labels define the session names.
+# Bins: [-1, 0, 8, 9, 13, 17, 22, 23] covers 0-23 hours.
+SESSION_BINS: list[int] = [-1, 0, 8, 9, 13, 17, 22, 23]
+SESSION_LABELS: list[str] = [
+    'Tokyo', 'Tokyo_London_Overlap', 'London', 
+    'London_NY_Overlap', 'New_York', 'Sydney', 'Sydney_End'
+]
 
 
 # --- 4. GOLD LAYER CONFIGURATION ---

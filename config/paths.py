@@ -15,6 +15,8 @@ LOGS_DIR   = os.path.join(PROJECT_ROOT, "logs")
 RAW_DATA_DIR    = os.path.join(DATA_DIR, "raw")
 BRONZE_DATA_DIR = os.path.join(DATA_DIR, "bronze")
 SILVER_DATA_DIR = os.path.join(DATA_DIR, "silver")
+SILVER_DATA_FEATURES_DIR = os.path.join(SILVER_DATA_DIR, "features")
+SILVER_DATA_CHUNKED_OUTCOMES_DIR = os.path.join(SILVER_DATA_DIR, "chunked_outcomes")
 GOLD_DATA_DIR   = os.path.join(DATA_DIR, "gold")
 PLATINUM_DATA_DIR = os.path.join(DATA_DIR, "platinum")
 
