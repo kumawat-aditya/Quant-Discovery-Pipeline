@@ -108,8 +108,13 @@ ATR_BAND_MULTIPLIERS: list[float] = [1.0, 2.0]
 # Bins: [-1, 0, 8, 9, 13, 17, 22, 23] covers 0-23 hours.
 SESSION_BINS: list[int] = [-1, 0, 8, 9, 13, 17, 22, 23]
 SESSION_LABELS: list[str] = [
-    'Tokyo', 'Tokyo_London_Overlap', 'London', 
-    'London_NY_Overlap', 'New_York', 'Sydney', 'Sydney_End'
+    'Tokyo',                 # Hour 0
+    'Tokyo_London_Overlap',  # Hours 1-8 (Asian Session)
+    'London',                # Hour 9 (London Open)
+    'London_NY_Overlap',     # Hours 10-13
+    'New_York',              # Hours 14-17
+    'Sydney',                # Hours 18-22
+    'Sydney'                 # Hour 23 (Merged into Sydney)
 ]
 
 

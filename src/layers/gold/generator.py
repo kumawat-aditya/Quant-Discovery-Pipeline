@@ -1,4 +1,4 @@
-# gold_data_generator.py (V4.0 - Corrected Scaling, Config & Logging)
+# gold_data_generator.py (V5.0 - Dynamic Regex Update)
 
 """
 Gold Layer: The Machine Learning Preprocessor
@@ -9,15 +9,7 @@ context-rich Silver `features` dataset into a purely numerical, normalized, and
 standardized Parquet file that is perfectly optimized for machine learning.
 
 Its sole purpose is to "translate" market context into the mathematical
-language that ML models understand, performing several key transformations:
-- Relational Transformation: Converts absolute price levels into a normalized
-  distance from the current close price, making features scale-invariant.
-- Categorical Encoding: Converts text-based features (e.g., 'session', 'regime')
-  into binary (0/1) columns via one-hot encoding.
-- Pattern Compression: Bins noisy candlestick pattern scores into a simple,
-  discrete 5-point scale to reduce noise.
-- Standardization: Rescales all other numerical features to a common scale
-  (mean 0, std 1) using StandardScaler.
+language that ML models understand.
 """
 
 import os
@@ -41,9 +33,7 @@ except ImportError:
     sys.exit(1)
 
 # --- CONFIGURATION IMPORT ---
-# Calculate paths relative to this script
 current_dir = os.path.dirname(os.path.abspath(__file__))
-# Assuming structure: project_root/src/data_processing/bronze/bronze_data_generator.py
 project_root = os.path.abspath(os.path.join(current_dir, "../../../"))
 config_dir = os.path.join(project_root, "config")
 utils_dir = os.path.join(project_root, "src", "utils")
@@ -56,9 +46,7 @@ try:
     import paths as p # type: ignore
     from logger_setup import setup_logging # type: ignore
     from file_selector import scan_new_files, select_files_interactively # type: ignore
-    from raw_data_loader import load_and_clean_raw_ohlc_csv # type: ignore
 except ImportError as e:
-    # Fallback logging if setup hasn't run
     logging.basicConfig(level=logging.INFO)
     logging.critical(f"Failed to import project modules. Ensure config.py and utils are accessible: {e}")
     sys.exit(1)
@@ -77,28 +65,45 @@ def downcast_dtypes(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def _transform_relational_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Converts absolute price columns to be relative to the current close price."""
+    """
+    Converts absolute price columns to be relative to the current close price.
+    This makes the data 'Scale Invariant' (valid for both $100 and $2000 assets).
+    """
     logger.info("  - Applying relational transformation...")
     if 'close' not in df.columns:
         raise KeyError("The required 'close' column is not present in the input DataFrame.")
 
+    # --- REGEX UPDATE ---
+    # This regex identifies columns that contain "Price" data (e.g. 1.0500).
+    # It must match the dynamic naming from Silver Layer (e.g., ATR_level_up_1p5x_14).
     abs_price_patterns = re.compile(
-        r'^(open|high|low|close)$|^(SMA|EMA)_\d+$|^BB_(upper|lower)_\d+$|'
-        r'^(support|resistance)$|^ATR_level_.+_\d+$'
+        r'^(open|high|low|close)$|'                   # OHLC
+        r'^(SMA|EMA)_\d+$|'                            # Moving Averages
+        r'^BB_(upper|lower)_\d+$|'                     # Bollinger Bands
+        r'^(support|resistance)$|'                     # Pivots
+        r'^ATR_level_(?:up|down)_[0-9]+(?:p[0-9]+)?x_\d+$' # Dynamic ATR Bands (e.g., 1p5x)
     )
+    
+    # Identify columns matching the pattern
     abs_price_cols = [col for col in df.columns if abs_price_patterns.match(col)]
     
     close_series = df['close']
+    
+    # Transform: (FeaturePrice - CurrentClose) / CurrentClose
+    # Result is a percentage distance (e.g., 0.01 = 1% away)
     for col in abs_price_cols:
         if col != 'close':
             df[f'{col}_dist_norm'] = (df[col] - close_series) / close_series.replace(0, np.nan)
     
+    # Drop the original absolute price columns to prevent Model Overfitting on specific price levels
+    # Also drop raw volume as it's usually not stationary (needs its own scaling if used)
     df.drop(columns=list(set(abs_price_cols) | {'volume'}), inplace=True, errors='ignore')
     return df
 
 def _encode_categorical_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
     """Converts text-based categorical columns into numerical binary columns."""
     logger.info("  - Encoding categorical features...")
+    # These prefixes must match what Silver Layer generates
     categorical_cols = [
         col for col in df.columns
         if col.startswith(('session', 'trend_regime', 'vol_regime'))
@@ -134,11 +139,13 @@ def _scale_numeric_features_corrected(
     logger.info(f"  - Scaling numeric features using a {window_size}-period rolling window...")
     candle_cols = {col for col in df.columns if col.startswith("CDL")}
     
+    # Identify columns that resulted from One-Hot Encoding
     one_hot_cols = {
         col for col in df.columns
         if any(cat_col_base in col for cat_col_base in original_cat_cols)
     }
     
+    # Do not scale categorical, time, or candlestick scores
     non_scalable_cols = candle_cols | one_hot_cols | {'time'}
     
     cols_to_scale = [
@@ -162,8 +169,7 @@ def _scale_numeric_features_corrected(
         df[col] = (df[col] - rolling_mean) / rolling_std.replace(0, np.nan)
         
         # After rolling, the first 'window_size-1' rows will be NaN.
-        # We backfill them, which is a reasonable approximation for the start of the series.
-        # Then, fill any remaining NaNs (e.g., if std was zero) with 0.
+        # We backfill them (safe approximation for start of series) and fill remaining with 0.
         df[col] = df[col].bfill().fillna(0)
         
     logger.info("  - Scaling complete.")
@@ -173,9 +179,16 @@ def create_gold_features(features_df: pd.DataFrame) -> pd.DataFrame:
     """Orchestrates the full preprocessing pipeline."""
     df = features_df.copy()
     
+    # 1. Relational Transform (Price -> Distance)
     df = _transform_relational_features(df)
+    
+    # 2. Categorical Encoding (Text -> OneHot)
     df, original_cat_cols = _encode_categorical_features(df)
+    
+    # 3. Compression (Patterns -> Scale)
     df = _compress_candlestick_patterns(df)
+    
+    # 4. Rolling Standardization (Oscillators -> Z-Score)
     df = _scale_numeric_features_corrected(df, original_cat_cols, c.GOLD_SCALER_ROLLING_WINDOW)
     
     logger.info("  - Finalizing and downcasting data types...")
@@ -186,12 +199,16 @@ def _process_single_file(paths_tuple: Tuple[str, str]) -> str:
     silver_path, gold_path = paths_tuple
     fname = os.path.basename(silver_path)
     try:
+        # Load Silver Features (Market State)
         features_df = pd.read_parquet(silver_path)
+        
         # Ensure 'time' column is datetime
         features_df['time'] = pd.to_datetime(features_df['time'])
 
+        # Process
         gold_dataset = create_gold_features(features_df)
         
+        # Save
         gold_dataset.to_parquet(gold_path, index=False)
         return f"SUCCESS: Gold data generated for {fname}."
     except Exception:
@@ -201,17 +218,17 @@ def _process_single_file(paths_tuple: Tuple[str, str]) -> str:
 
 def main() -> None:
     """Main execution function."""
-    # Setup Logging using Config levels
     setup_logging(p.LOGS_DIR, c.CONSOLE_LOG_LEVEL, c.FILE_LOG_LEVEL, "gold_layer")
 
     start_time = time.time()
-    logger.info("--- Gold Layer: The ML Preprocessor (Parquet Edition) ---")
+    logger.info("--- Gold Layer: The ML Preprocessor (V5.0 - Dynamic Regex) ---")
 
     # File Selection Logic
     files_to_process = []
     target_file_arg = sys.argv[1] if len(sys.argv) > 1 else None
+    
     if target_file_arg:
-        # User passed a specific file
+        # Targeted Mode
         silver_path = os.path.join(p.SILVER_DATA_FEATURES_DIR, f"{target_file_arg}.parquet")
         if os.path.exists(silver_path):
             files_to_process = [f"{target_file_arg}.parquet"]
@@ -219,7 +236,7 @@ def main() -> None:
         else:
             logger.error(f"Target file not found: {silver_path}")
     else:
-        # Standard Mode: Scan for new files
+        # Batch Mode
         new_files = scan_new_files(p.SILVER_DATA_FEATURES_DIR, p.GOLD_DATA_FEATURES_DIR)
         files_to_process = select_files_interactively(new_files)
 
@@ -231,7 +248,8 @@ def main() -> None:
     for filename in files_to_process:
         logger.info(f"--- Processing {filename} ---")
         silver_path = os.path.join(p.SILVER_DATA_FEATURES_DIR, filename)
-        gold_path = os.path.join(p.GOLD_DATA_FEATURES_DIR, filename) # Output name is the same
+        gold_path = os.path.join(p.GOLD_DATA_FEATURES_DIR, filename)
+        
         result = _process_single_file((silver_path, gold_path))
         logger.info(result)
 
