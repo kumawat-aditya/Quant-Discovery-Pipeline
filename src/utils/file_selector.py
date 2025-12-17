@@ -5,17 +5,14 @@ from typing import List, Optional
 def scan_new_files(
     input_dir: str,
     output_dir: str,
-    input_ext: str = ".parquet",
-    output_ext: str = ".parquet"
 ) -> List[str]:
     """
     Returns files present in input_dir that do not yet exist in output_dir.
     """
-    input_files = sorted(f for f in os.listdir(input_dir) if f.endswith(input_ext))
+    input_files = sorted(f for f in os.listdir(input_dir))
     output_bases = {
         os.path.splitext(f)[0]
         for f in os.listdir(output_dir)
-        if f.endswith(output_ext)
     }
 
     return [f for f in input_files if os.path.splitext(f)[0] not in output_bases]

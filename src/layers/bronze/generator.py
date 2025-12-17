@@ -54,6 +54,7 @@ try:
     import paths as p # type: ignore
     from logger_setup import setup_logging # type: ignore
     from file_selector import scan_new_files, select_files_interactively # type: ignore
+    from raw_data_loader import load_and_clean_raw_ohlc_csv # type: ignore
 except ImportError as e:
     # Fallback logging if setup hasn't run
     logging.basicConfig(level=logging.INFO)
@@ -241,38 +242,7 @@ def process_file_pipelined(
 
     # --- 1. Load and Clean Raw Data ---
     try:
-        # Load using columns defined in config
-        df = pd.read_csv(input_file, sep=None, engine="python", header=None)
-        
-        # Validate column count
-        required_cols = len(c.RAW_DATA_COLUMNS)
-        if df.shape[1] < required_cols:
-            # Fallback: Try to use as many as available if it matches minimal set
-            if df.shape[1] >= 5: 
-                 df.columns = c.RAW_DATA_COLUMNS[:df.shape[1]]
-            else:
-                return f"ERROR: File has {df.shape[1]} columns, expected at least 5 (OHLCV)."
-        else:
-            df.columns = c.RAW_DATA_COLUMNS[:df.shape[1]]
-
-        # Standardize Time
-        df['time'] = pd.to_datetime(df['time'], errors='coerce')
-        # If timezone information exists, remove it.
-        if df['time'].dt.tz is not None:
-            logger.debug(f"Timezone '{df['time'].dt.tz}' detected. Localizing to None (UTC-naive).")
-            df['time'] = df['time'].dt.tz_localize(None)
-            
-        numeric_cols = ["open", "high", "low", "close"]
-        df[numeric_cols] = df[numeric_cols].apply(pd.to_numeric, errors='coerce')
-
-        # Drop invalid rows
-        initial_rows = len(df)
-        df.dropna(subset=['time'] + numeric_cols, inplace=True)
-        if len(df) < initial_rows:
-            logger.warning(f"Dropped {initial_rows - len(df)} rows with invalid data.")
-        
-        df = df.sort_values('time').reset_index(drop=True)
-
+        df = load_and_clean_raw_ohlc_csv(input_file)
     except Exception as e:
         return f"ERROR: Failed to load '{filename}': {e}"
     
@@ -371,15 +341,15 @@ def main() -> None:
     
     if target_file_arg:
         # User passed a specific file
-        target_path = os.path.join(p.RAW_DATA_DIR, target_file_arg)
+        target_path = os.path.join(p.RAW_DATA_DIR, f"{target_file_arg}.csv")
         if os.path.exists(target_path):
-            files_to_process = [target_file_arg]
-            logger.info(f"Targeted Mode: {target_file_arg}")
+            files_to_process = [f"{target_file_arg}.csv"]
+            logger.info(f"Targeted Mode: Processing '{target_file_arg}'")
         else:
             logger.error(f"Target file not found: {target_path}")
     else:
         # Standard Mode: Scan for new files
-        new_files = scan_new_files(p.RAW_DATA_DIR, p.BRONZE_DATA_DIR, ".csv")
+        new_files = scan_new_files(p.RAW_DATA_DIR, p.BRONZE_DATA_DIR)
         files_to_process = select_files_interactively(new_files)
 
     if not files_to_process:
