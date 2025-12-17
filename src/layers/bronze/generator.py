@@ -35,7 +35,7 @@ try:
     import pyarrow as pa
     import pyarrow.parquet as pq
 except ImportError:
-    logging.critical("'pyarrow' library not found. Please run 'pip install pyarrow' to continue.")
+    print("CRITICAL: 'pyarrow' library not found. Please run 'pip install pyarrow' to continue.")
     sys.exit(1)
 
 # --- CONFIGURATION IMPORT ---
@@ -321,6 +321,7 @@ def main() -> None:
     """Main execution function."""
     # Setup Logging using Config levels
     setup_logging(p.LOGS_DIR, c.CONSOLE_LOG_LEVEL, c.FILE_LOG_LEVEL, "bronze_layer")
+    p.ensure_directories()
 
     start_time = time.time()
     logger.info("--- Bronze Layer: The Possibility Engine (Updated V17) ---")
