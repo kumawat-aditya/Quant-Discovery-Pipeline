@@ -42,6 +42,7 @@ ALL_DIRS = [
     SILVER_DATA_FEATURES_DIR,
     SILVER_DATA_CHUNKED_OUTCOMES_DIR,
     GOLD_DATA_DIR,
+    GOLD_DATA_FEATURES_DIR,
     PLATINUM_DATA_DIR,
 ]
 
@@ -49,3 +50,6 @@ def ensure_directories():
     for d in ALL_DIRS:
         # Now 'd' is a Path object, so mkdir works!
         d.mkdir(parents=True, exist_ok=True)
+
+# if __name__ == "__main__":
+#     ensure_directories()

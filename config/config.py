@@ -117,16 +117,47 @@ SESSION_LABELS: list[str] = [
     'Sydney'                 # Hour 23 (Merged into Sydney)
 ]
 
-
 # --- 4. GOLD LAYER CONFIGURATION ---
-# Settings specific to `gold_data_generator.py`.
 
 # The size of the rolling window used for time-series standardization (scaling).
-# This prevents look-ahead bias by only using past data to scale each point.
-# A value of 200 means a point is scaled using the mean/std of the previous 200 points.
 GOLD_SCALER_ROLLING_WINDOW: int = 200
 
+# --- Multi-Anchor Normalization Strategy ---
+# A list of transformations. The script will iterate through this list.
+# For each entry, it finds columns matching 'targets_regex' and normalizes them
+# against the 'anchor_col'.
+# Formula: (Target - Anchor) / Anchor
+# New Column Name: {Target}_rel_{Anchor}
 
+GOLD_NORMALIZATION_CONFIG: list[dict] = [
+    # 1. The Standard: Everything vs Close
+    # Helps the AI see where levels are relative to current price.
+    {
+        "anchor_col": "close",
+        "targets_regex": r"^(open|high|low|SMA_.*|EMA_.*|BB_.*|support|resistance|ATR_level.*)$"
+    },
+
+    # 2. Wick Dynamics: High/Low vs Open
+    # Helps the AI understand intra-candle volatility and rejection.
+    {
+        "anchor_col": "open",
+        "targets_regex": r"^(high|low)$"
+    },
+    
+    # 3. Trend Deviation: Close vs Long-Term MA
+    # Helps the AI spot overextended trends.
+    {
+        "anchor_col": "SMA_200", 
+        "targets_regex": r"^(close)$"
+    },
+    
+    # 4. Volatility Compression: Bands vs SMA
+    # Helps the AI see if bands are squeezing (narrow) or expanding.
+    {
+        "anchor_col": "SMA_20",
+        "targets_regex": r"^(BB_upper_20|BB_lower_20)$"
+    }
+]
 
 # --- 5. PLATINUM LAYER CONFIGURATION ---
 # Settings for `platinum_preprocessor.py` and `platinum_strategy_discoverer.py`

@@ -1,15 +1,11 @@
-# gold_data_generator.py (V5.0 - Dynamic Regex Update)
+# gold_data_generator.py (V7.1 - Strict Scaling & Multi-Anchor)
 
 """
 Gold Layer: The Machine Learning Preprocessor
 
 This script represents the crucial final stage of data preparation in the
-pipeline. It acts as a specialized transformer, converting the human-readable,
-context-rich Silver `features` dataset into a purely numerical, normalized, and
-standardized Parquet file that is perfectly optimized for machine learning.
-
-Its sole purpose is to "translate" market context into the mathematical
-language that ML models understand.
+pipeline. It features a Multi-Anchor Normalization Engine and a Strict Scaling
+policy to prevent signal corruption.
 """
 
 import os
@@ -18,7 +14,7 @@ import sys
 import time
 import logging
 import traceback
-from typing import List, Tuple
+from typing import List, Tuple, Set
 
 import numpy as np
 import pandas as pd
@@ -64,46 +60,70 @@ def downcast_dtypes(df: pd.DataFrame) -> pd.DataFrame:
         df[col] = df[col].astype('int32')
     return df
 
-def _transform_relational_features(df: pd.DataFrame) -> pd.DataFrame:
+def _transform_relational_features_multi_anchor(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Converts absolute price columns to be relative to the current close price.
-    This makes the data 'Scale Invariant' (valid for both $100 and $2000 assets).
+    Applies multiple normalization passes based on GOLD_NORMALIZATION_CONFIG.
+    Generates features like 'high_rel_close', 'high_rel_open'.
     """
-    logger.info("  - Applying relational transformation...")
-    if 'close' not in df.columns:
-        raise KeyError("The required 'close' column is not present in the input DataFrame.")
+    logger.info("  - Applying Multi-Anchor Relational Transformation...")
+    
+    if not hasattr(c, "GOLD_NORMALIZATION_CONFIG"):
+        raise AttributeError("GOLD_NORMALIZATION_CONFIG is missing from config.py")
 
-    # --- REGEX UPDATE ---
-    # This regex identifies columns that contain "Price" data (e.g. 1.0500).
-    # It must match the dynamic naming from Silver Layer (e.g., ATR_level_up_1p5x_14).
-    abs_price_patterns = re.compile(
-        r'^(open|high|low|close)$|'                   # OHLC
-        r'^(SMA|EMA)_\d+$|'                            # Moving Averages
-        r'^BB_(upper|lower)_\d+$|'                     # Bollinger Bands
-        r'^(support|resistance)$|'                     # Pivots
-        r'^ATR_level_(?:up|down)_[0-9]+(?:p[0-9]+)?x_\d+$' # Dynamic ATR Bands (e.g., 1p5x)
-    )
+    absolute_cols_to_drop: Set[str] = set()
     
-    # Identify columns matching the pattern
-    abs_price_cols = [col for col in df.columns if abs_price_patterns.match(col)]
+    # Iterate through the config list
+    for i, rule in enumerate(c.GOLD_NORMALIZATION_CONFIG):
+        anchor_name = rule.get("anchor_col")
+        targets_regex = rule.get("targets_regex")
+        
+        if not anchor_name or not targets_regex:
+            continue
+            
+        if anchor_name not in df.columns:
+            logger.debug(f"Skipping rule #{i+1}: Anchor '{anchor_name}' not found.")
+            continue
+            
+        anchor_series = df[anchor_name]
+        regex = re.compile(targets_regex)
+        
+        # Find all columns matching the regex
+        target_cols = [col for col in df.columns if regex.match(col)]
+        
+        if not target_cols:
+            continue
+            
+        logger.info(f"    -> Anchor: '{anchor_name}' | Normalizing {len(target_cols)} targets.")
+        
+        for target in target_cols:
+            # Don't normalize a column against itself
+            if target == anchor_name:
+                absolute_cols_to_drop.add(target)
+                continue
+            
+            # Create Relative Feature
+            new_col = f"{target}_rel_{anchor_name}"
+            
+            # Formula: (Target - Anchor) / Anchor
+            df[new_col] = (df[target] - anchor_series) / anchor_series.replace(0, np.nan)
+            
+            # Mark for later deletion
+            absolute_cols_to_drop.add(target)
+            absolute_cols_to_drop.add(anchor_name)
+
+    # Cleanup: Drop original absolute price columns
+    if 'volume' in df.columns:
+        absolute_cols_to_drop.add('volume')
+        
+    cols_existing = [c for c in absolute_cols_to_drop if c in df.columns]
+    logger.info(f"  - Dropping {len(cols_existing)} absolute price columns.")
+    df.drop(columns=cols_existing, inplace=True)
     
-    close_series = df['close']
-    
-    # Transform: (FeaturePrice - CurrentClose) / CurrentClose
-    # Result is a percentage distance (e.g., 0.01 = 1% away)
-    for col in abs_price_cols:
-        if col != 'close':
-            df[f'{col}_dist_norm'] = (df[col] - close_series) / close_series.replace(0, np.nan)
-    
-    # Drop the original absolute price columns to prevent Model Overfitting on specific price levels
-    # Also drop raw volume as it's usually not stationary (needs its own scaling if used)
-    df.drop(columns=list(set(abs_price_cols) | {'volume'}), inplace=True, errors='ignore')
     return df
 
 def _encode_categorical_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
     """Converts text-based categorical columns into numerical binary columns."""
     logger.info("  - Encoding categorical features...")
-    # These prefixes must match what Silver Layer generates
     categorical_cols = [
         col for col in df.columns
         if col.startswith(('session', 'trend_regime', 'vol_regime'))
@@ -133,21 +153,34 @@ def _scale_numeric_features_corrected(
     df: pd.DataFrame, original_cat_cols: List[str], window_size: int
 ) -> pd.DataFrame:
     """
-    Standardizes numerical features using a rolling window to prevent look-ahead bias.
-    This is the only methodologically sound way to scale time-series data for ML.
+    Standardizes numerical features using a rolling window.
+    STRICTLY avoids scaling Relational and Time columns to preserve signal integrity.
     """
     logger.info(f"  - Scaling numeric features using a {window_size}-period rolling window...")
+    
+    # 1. Identify what NOT to scale
+    
+    # A. Candlestick Scores (-1 to 1)
     candle_cols = {col for col in df.columns if col.startswith("CDL")}
     
-    # Identify columns that resulted from One-Hot Encoding
+    # B. One-Hot Encoded Columns (0 or 1)
     one_hot_cols = {
         col for col in df.columns
         if any(cat_col_base in col for cat_col_base in original_cat_cols)
     }
     
-    # Do not scale categorical, time, or candlestick scores
-    non_scalable_cols = candle_cols | one_hot_cols | {'time'}
+    # C. Relational Columns (Percentage Distances)
+    # Scaling these flips the sign relative to local history, destroying 'Above/Below' signals.
+    rel_cols = {col for col in df.columns if "_rel_" in col}
     
+    # D. Time Features (Cyclical/Raw)
+    # Z-scoring these destroys the 0-23 cycle or 0-6 weekday logic.
+    time_cols = {'hour', 'weekday', 'time'}
+    
+    non_scalable_cols = candle_cols | one_hot_cols | rel_cols | time_cols
+    
+    # 2. Select Columns to Scale
+    # This leaves: Oscillators (RSI, CCI), Statistics (avg_body), etc.
     cols_to_scale = [
         col for col in df.columns
         if col not in non_scalable_cols and pd.api.types.is_numeric_dtype(df[col])
@@ -157,19 +190,19 @@ def _scale_numeric_features_corrected(
         logger.warning("No numerical columns found to scale.")
         return df
         
-    # Using a rolling window approach for time-series-safe standardization.
+    logger.info(f"    -> Identified {len(cols_to_scale)} columns for Z-Score scaling (Oscillators/Stats).")
+    
+    # 3. Apply Rolling Z-Score
     for col in tqdm(cols_to_scale, desc="    -> Scaling columns", unit="col"):
-        # Fill initial NaNs that might exist before calculating rolling stats
         df[col] = df[col].fillna(0)
         
         rolling_mean = df[col].rolling(window=window_size, min_periods=max(2, int(window_size*0.1))).mean()
         rolling_std = df[col].rolling(window=window_size, min_periods=max(2, int(window_size*0.1))).std()
         
-        # Standardize: (value - rolling_mean) / rolling_std
+        # Calculate Z-Score
         df[col] = (df[col] - rolling_mean) / rolling_std.replace(0, np.nan)
         
-        # After rolling, the first 'window_size-1' rows will be NaN.
-        # We backfill them (safe approximation for start of series) and fill remaining with 0.
+        # Backfill warmup period
         df[col] = df[col].bfill().fillna(0)
         
     logger.info("  - Scaling complete.")
@@ -179,16 +212,16 @@ def create_gold_features(features_df: pd.DataFrame) -> pd.DataFrame:
     """Orchestrates the full preprocessing pipeline."""
     df = features_df.copy()
     
-    # 1. Relational Transform (Price -> Distance)
-    df = _transform_relational_features(df)
+    # 1. Multi-Anchor Relational Transform
+    df = _transform_relational_features_multi_anchor(df)
     
-    # 2. Categorical Encoding (Text -> OneHot)
+    # 2. Categorical Encoding
     df, original_cat_cols = _encode_categorical_features(df)
     
-    # 3. Compression (Patterns -> Scale)
+    # 3. Compression
     df = _compress_candlestick_patterns(df)
     
-    # 4. Rolling Standardization (Oscillators -> Z-Score)
+    # 4. Rolling Standardization (Strict Mode)
     df = _scale_numeric_features_corrected(df, original_cat_cols, c.GOLD_SCALER_ROLLING_WINDOW)
     
     logger.info("  - Finalizing and downcasting data types...")
@@ -199,16 +232,9 @@ def _process_single_file(paths_tuple: Tuple[str, str]) -> str:
     silver_path, gold_path = paths_tuple
     fname = os.path.basename(silver_path)
     try:
-        # Load Silver Features (Market State)
         features_df = pd.read_parquet(silver_path)
-        
-        # Ensure 'time' column is datetime
         features_df['time'] = pd.to_datetime(features_df['time'])
-
-        # Process
         gold_dataset = create_gold_features(features_df)
-        
-        # Save
         gold_dataset.to_parquet(gold_path, index=False)
         return f"SUCCESS: Gold data generated for {fname}."
     except Exception:
@@ -221,14 +247,12 @@ def main() -> None:
     setup_logging(p.LOGS_DIR, c.CONSOLE_LOG_LEVEL, c.FILE_LOG_LEVEL, "gold_layer")
 
     start_time = time.time()
-    logger.info("--- Gold Layer: The ML Preprocessor (V5.0 - Dynamic Regex) ---")
+    logger.info("--- Gold Layer: The ML Preprocessor (V7.1 - Strict Scaling) ---")
 
-    # File Selection Logic
     files_to_process = []
     target_file_arg = sys.argv[1] if len(sys.argv) > 1 else None
     
     if target_file_arg:
-        # Targeted Mode
         silver_path = os.path.join(p.SILVER_DATA_FEATURES_DIR, f"{target_file_arg}.parquet")
         if os.path.exists(silver_path):
             files_to_process = [f"{target_file_arg}.parquet"]
@@ -236,7 +260,6 @@ def main() -> None:
         else:
             logger.error(f"Target file not found: {silver_path}")
     else:
-        # Batch Mode
         new_files = scan_new_files(p.SILVER_DATA_FEATURES_DIR, p.GOLD_DATA_FEATURES_DIR)
         files_to_process = select_files_interactively(new_files)
 
