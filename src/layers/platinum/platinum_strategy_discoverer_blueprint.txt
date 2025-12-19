@@ -1,0 +1,97 @@
+Excellent. Here is the complete, final, and definitive blueprint for `platinum_strategy_discoverer.py`. This version incorporates all of our architectural decisions, including the Two-Phase Learning model and the hyper-efficient in-memory pre-filtering.
+
+---
+
+### Definitive Blueprint: `platinum_strategy_discoverer.py` (V5.1 - Final Architecture)
+
+#### I. Core Philosophy
+
+*   **Two-Phase Execution:** The script operates in two distinct phases to ensure both initial discovery and continuous, iterative improvement.
+    1.  **Phase 1 (Discovery):** A comprehensive, resumable run to find initial rules for all new, unprocessed, and high-quality blueprints.
+    2.  **Phase 2 (Iterative Improvement):** A fast, targeted run that *only* re-evaluates high-quality blueprints for which the backtester has provided new negative feedback. This is the core of the learning loop.
+*   **Intelligent Pruning:** The system actively learns from past results. It uses a unified "exclusion list" (containing both previously found good rules and known bad rules) to "poison" the training data, forcing the Decision Tree to discover truly novel patterns.
+*   **Robust & Resumable:** The script is designed to be fail-safe. State is logged continuously, allowing Phase 1 to be resumed if it crashes. All file operations are append-only to prevent data loss.
+*   **I/O Efficient:** Startup is near-instantaneous. An expensive pre-filtering step is eliminated by leveraging pre-calculated metadata (`num_candles`) from the `combinations.csv` file.
+
+---
+
+#### II. Data I/O & State Management
+
+**Input Files (Read at Start):**
+1.  `gold_data/features/{instrument}.csv`: Master feature set (`X`). Loaded **once**.
+2.  `platinum_data/combinations/{instrument}.csv`: Master list of all blueprints, their `key`s, and their pre-calculated `num_candles`.
+3.  `platinum_data/discovered_strategies/{instrument}.csv`: Append-only log of `(key, market_rule)` for strategies already found.
+4.  `platinum_data/blacklists/{instrument}.csv`: Append-only log of `(key, market_rule)` for unprofitable strategies.
+5.  `platinum_data/exhausted_keys/{instrument}.csv`: Append-only log of `key`s with no more good rules.
+6.  `platinum_data/discovery_log/{instrument}.processed`: Append-only log of `key`s that have completed Phase 1 discovery.
+
+**Output Files (Appended to during run):**
+1.  `platinum_data/discovered_strategies/{instrument}.csv`: Main output for new, valid strategies from both phases.
+2.  `platinum_data/exhausted_keys/{instrument}.csv`: Output for keys that become exhausted in either phase.
+3.  `platinum_data/discovery_log/{instrument}.processed`: Logs keys that successfully complete processing in Phase 1.
+
+---
+
+#### III. High-Level Orchestration (`run_discovery_for_instrument`)
+
+1.  **COMMON SETUP PHASE:**
+    *   Initialize all file paths. Create directories and empty files if they don't exist.
+    *   Load the Gold features file. This will be passed to the worker initializer.
+    *   Load `combinations.csv` into `all_blueprints_df`.
+    *   Load `exhausted_keys.csv` into `exhausted_keys_set`.
+    *   **Build Unified Exclusion Dictionary:**
+        *   Load `discovered_strategies.csv` and `blacklist_strategies.csv`.
+        *   Combine them and group by `key` to create `exclusion_rules_by_key = {'key1': {ruleA, ruleB}, ...}`.
+
+2.  **PHASE 1: DISCOVERY**
+    *   **Queue Generation (Hyper-Efficient):**
+        *   Load `discovery_log/{instrument}.processed` into `processed_keys_set`.
+        *   Start with `all_blueprints_df`.
+        *   **Filter 1 (In-Memory):** `df = df[df['num_candles'] >= MIN_CANDLE_LIMIT]`.
+        *   **Filter 2 (In-Memory):** `df = df[~df['key'].isin(exhausted_keys_set)]`.
+        *   **Filter 3 (In-Memory):** `df = df[~df['key'].isin(processed_keys_set)]`.
+        *   The result is the final `keys_for_discovery` list, extracted from the filtered DataFrame's `key` column.
+    *   **Execution:**
+        *   If `keys_for_discovery` is not empty, print "--- Starting Phase 1: Discovery ---".
+        *   Run the `execute_parallel_processing` function, passing `keys_for_discovery` and `is_discovery_phase=True`.
+
+3.  **PHASE 2: ITERATIVE IMPROVEMENT**
+    *   **Queue Generation:**
+        *   Get the set of all unique `key`s from the `blacklist_strategies.csv` file (`keys_with_new_feedback`).
+        *   Filter `all_blueprints_df` to keep only rows whose `key` is in `keys_with_new_feedback`.
+        *   **Filter 1 (In-Memory):** `df = df[df['num_candles'] >= MIN_CANDLE_LIMIT]`.
+        *   **Filter 2 (In-Memory):** `df = df[~df['key'].isin(exhausted_keys_set)]`.
+        *   The result is the final `keys_for_improvement` list.
+    *   **Execution:**
+        *   If `keys_for_improvement` is not empty, print "--- Starting Phase 2: Iterative Improvement ---".
+        *   Run the `execute_parallel_processing` function, passing `keys_for_improvement` and `is_discovery_phase=False`.
+
+---
+
+#### IV. Core Logic (`execute_parallel_processing` and Workers)
+
+**`execute_parallel_processing` Function:**
+*   A generic parallel engine that takes a `list_of_keys` and a boolean `is_discovery_phase`.
+*   Creates a `Pool` of workers, initializing them with the Gold features data.
+*   Splits keys into batches and creates a `tasks` list. Each task is a `(key_batch, exclusion_rules_by_key)`.
+*   Uses `pool.imap_unordered` to process tasks.
+*   Contains the "Reducer" loop that receives results, appends them to buffers, and calls `flush_buffers`.
+*   **The `flush_buffers` function is now smarter:** it will only write to `processed.log` if the `is_discovery_phase` flag is `True`.
+
+**`process_key_batch` Worker Function:**
+*   Receives a `key_batch` and the `exclusion_rules_by_key` dictionary.
+*   Loops through each `key`, loads its target file, merges data, and calls the `find_rules_with_decision_tree` function, passing only the exclusion rules for that specific key.
+*   Returns a dictionary of `{'strategies': [...], 'exhausted_keys': [...]}`.
+
+**`find_rules_with_decision_tree` Function:**
+*   Receives the training DataFrame and a `set` of exclusion rules for the current key.
+*   **Data Pruning:** Iterates through the exclusion rules, finds the corresponding candles using `df.query()`, and sets their `trade_count` to 0.
+*   **Model Training:** Trains the `DecisionTreeRegressor` on the pruned data.
+*   **Rule Extraction:** Traverses the tree's leaf nodes to reconstruct human-readable rule strings.
+*   **Quality Filtering:** For each leaf, it checks if the rule meets `MIN_CANDLES_PER_RULE` and `LIFT_THRESHOLD`.
+*   **Final Check:** It performs a final check to ensure the newly generated rule is not already in the exclusion set.
+*   **Returns:** A list of valid, novel strategies (including blueprint info and the new rule), or a status of `'exhausted'` if no new, high-quality rules are found.
+
+---
+
+This V5.1 blueprint is complete, optimized, and robust. It is the definitive plan for our implementation.
