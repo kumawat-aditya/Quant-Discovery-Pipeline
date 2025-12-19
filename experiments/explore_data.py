@@ -65,6 +65,38 @@ def show_csv_preview(file_path, num_rows=5):
     except Exception as e:
         print(f"[ERROR] Could not preview rows: {e}")
 
+#--------------------------------------------------------------
+#  Utility: Print a single row as key : value
+#--------------------------------------------------------------
+def print_row_key_value(file_path, row_index):
+    try:
+        if is_parquet_file(file_path):
+            # Parquet (efficient single-row read)
+            df = pd.read_parquet(file_path)
+            if row_index >= len(df):
+                print(f"[ERROR] Row index out of range (max {len(df)-1})")
+                return
+            row = df.iloc[row_index]
+        else:
+            # CSV (stream-safe)
+            df = pd.read_csv(
+                file_path,
+                skiprows=range(1, row_index + 1),
+                nrows=1,
+                low_memory=True
+            )
+            if df.empty:
+                print("[ERROR] No data at that row index.")
+                return
+            row = df.iloc[0]
+
+        print(f"\n📌 Row {row_index} (key : value)\n")
+        for col, val in row.items():
+            print(f"{col}  : {val}")
+
+    except Exception as e:
+        print(f"[ERROR] Failed to print row: {e}")
+
 
 #--------------------------------------------------------------
 #  Interactive Directory Navigator (starting at parent directory)
@@ -149,24 +181,32 @@ def main():
     print("\nWhat do you want to do?")
     print("1️⃣  Show only column headings")
     print("2️⃣  Show headings + preview rows")
+    print("3️⃣  Show a single row as key : value pairs")
 
     choice = input("Enter choice: ").strip()
 
     headings = get_csv_headings(file_path)
-    if headings:
-        print("\n📌 Column Headings:")
-        print(headings)
-
-        if choice == "2":
-            try:
-                num_rows = int(input("How many rows? (default 5): ").strip() or 5)
-            except:
-                num_rows = 5
-
-            show_csv_preview(file_path, num_rows)
-    else:
+    if not headings:
         print("[WARNING] Could not read headings.")
+        return
 
+    print("\n📌 Column Headings:")
+    print(headings)
+
+    if choice == "2":
+        try:
+            num_rows = int(input("How many rows? (default 5): ").strip() or 5)
+        except:
+            num_rows = 5
+        show_csv_preview(file_path, num_rows)
+
+    elif choice == "3":
+        try:
+            row_index = int(input("Enter row index (0-based): ").strip())
+            print_row_key_value(file_path, row_index)
+        except ValueError:
+            print("❌ Invalid row index.")
+            
 
 if __name__ == "__main__":
     main()
