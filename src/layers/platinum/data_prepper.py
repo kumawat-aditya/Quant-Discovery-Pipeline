@@ -363,39 +363,29 @@ def main() -> None:
     start_time = time.time()
     logger.info("--- Platinum Pre-Processor: Unified Blueprint Discovery (V6.0) ---")
 
-    # Interactive Mode Logic
-    target_arg = sys.argv[1] if len(sys.argv) > 1 else None
+    # File Selection Logic
+    files_to_process = []
+    target_file_arg = sys.argv[1] if len(sys.argv) > 1 else None
     
-    if target_arg:
-        # Check if the folder exists in Silver Chunked Outcomes
-        if os.path.isdir(os.path.join(p.SILVER_DATA_CHUNKED_OUTCOMES_DIR, target_arg)):
-            process_list = [target_arg]
+    if target_file_arg:
+        # User passed a specific file
+        target_path = os.path.join(p.SILVER_DATA_CHUNKED_OUTCOMES_DIR, target_file_arg)
+        if os.path.exists(target_path):
+            files_to_process = [target_file_arg]
+            logger.info(f"Targeted Mode: Processing '{target_file_arg}'")
         else:
-            logger.error(f"Silver chunk directory not found for: {target_arg}")
-            process_list = []
+            logger.error(f"Target file not found: {target_path}")
     else:
-        # Scan for new folders (Instruments)
-        # Note: 'scan_new_files' usually looks for files, but here we need Folders.
-        # So we manually list directories in CHUNKED_OUTCOMES_DIR
-        try:
-            all_dirs = [d for d in os.listdir(p.SILVER_DATA_CHUNKED_OUTCOMES_DIR) 
-                        if os.path.isdir(os.path.join(p.SILVER_DATA_CHUNKED_OUTCOMES_DIR, d))]
-            
-            # Filter out ones already done (checked against Combinations folder)
-            processed = {f.replace('.parquet', '') for f in os.listdir(p.PLATINUM_DATA_COMBINATIONS_DIR) if f.endswith('.parquet')}
-            new_dirs = sorted(list(set(all_dirs) - processed))
-            
-            process_list = select_files_interactively(new_dirs)
-        except Exception as e:
-            logger.error(f"Error scanning directories: {e}")
-            process_list = []
-    
-    if not process_list:
-        logger.info("No instruments selected. Exiting.")
+        # Standard Mode: Scan for new files
+        new_files = scan_new_files(p.SILVER_DATA_CHUNKED_OUTCOMES_DIR, p.PLATINUM_DATA_COMBINATIONS_DIR)
+        files_to_process = select_files_interactively(new_files)
+
+    if not files_to_process:
+        logger.info("No files selected. Exiting.")
         return
 
-    logger.info(f"Processing {len(process_list)} instruments...")
-    for instrument in process_list:
+    logger.info(f"Processing {len(files_to_process)} instruments...")
+    for instrument in files_to_process:
         logger.info(f"--- Processing: {instrument} ---")
         run_preprocessor_for_instrument(instrument)
     
