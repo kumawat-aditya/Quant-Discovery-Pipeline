@@ -40,7 +40,7 @@ RAW_DATA_COLUMNS: list[str] = ["time", "open", "high", "low", "close", "volume"]
 # --- GENERATION MODE (NEW) ---
 # Determines what data to save for the AI.
 # Options: 'WINS_ONLY', 'BALANCED' (1:1), 'ALL' (No sampling, huge files)
-BRONZE_GENERATION_MODE: str = 'ALL' 
+BRONZE_GENERATION_MODE: str = 'BALANCED' 
 
 # If 'BALANCED', this limits the maximum number of samples per chunk to prevent
 # data explosion. If we find 10k wins, we only sample 10k losses.
