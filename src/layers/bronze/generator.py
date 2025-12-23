@@ -1,20 +1,13 @@
-# bronze_data_generator.py
+# bronze_data_generator.py (V20 - Full Control & Strict Logic)
 
 """
 Bronze Layer: The Possibility Engine
 
-This script serves as the foundational data generation layer for the quantitative
-trading strategy discovery pipeline. Its primary purpose is to systematically
-scan historical price data and generate a comprehensive dataset of every
-conceivable winning trade based on a predefined grid of Stop-Loss (SL) and
-Take-Profit (TP) ratios defined in the central configuration.
-
-Architectural Highlights:
-- Parquet Output: Saves data in the highly efficient, columnar Parquet format.
-- Numba JIT Compilation: Core simulation logic is hardware-accelerated.
-- Producer-Consumer Model: Uses multiprocessing to simulate trades in parallel.
-- Dynamic Configuration: Adapts to instrument-specific spreads and timeframe-specific
-  SL/TP grids defined in config.py.
+This script generates the raw trade simulation data.
+Features:
+- Configurable Generation Mode: WINS_ONLY, BALANCED, or ALL.
+- Strict SL Priority: Always checks if Stop Loss was hit before Take Profit.
+- Dynamic Pip Sizing: Uses centralized config for instrument precision.
 """
 
 import os
@@ -22,6 +15,7 @@ import re
 import sys
 import time
 import logging
+import random
 from multiprocessing import Pool, cpu_count
 from typing import Dict, List, Optional, Tuple, Any
 
@@ -39,9 +33,7 @@ except ImportError:
     sys.exit(1)
 
 # --- CONFIGURATION IMPORT ---
-# Calculate paths relative to this script
 current_dir = os.path.dirname(os.path.abspath(__file__))
-# Assuming structure: project_root/src/data_processing/bronze/bronze_data_generator.py
 project_root = os.path.abspath(os.path.join(current_dir, "../../../"))
 config_dir = os.path.join(project_root, "config")
 utils_dir = os.path.join(project_root, "src", "utils")
@@ -56,9 +48,8 @@ try:
     from file_selector import scan_new_files, select_files_interactively # type: ignore
     from raw_data_loader import load_and_clean_raw_ohlc_csv # type: ignore
 except ImportError as e:
-    # Fallback logging if setup hasn't run
     logging.basicConfig(level=logging.INFO)
-    logging.critical(f"Failed to import project modules. Ensure config.py and utils are accessible: {e}")
+    logging.critical(f"Failed to import project modules: {e}")
     sys.exit(1)
 
 # Initialize logger for this module
@@ -71,107 +62,150 @@ worker_df: Optional[pd.DataFrame] = None
 worker_config: Optional[Dict[str, Any]] = None
 worker_spread_cost: Optional[float] = None
 worker_max_lookforward: Optional[int] = None
+worker_gen_mode: Optional[str] = None
 
-
-def init_worker(df: pd.DataFrame, config_dict: Dict, spread_cost: float, max_lookforward: int) -> None:
-    """Initializer for each worker process in the multiprocessing Pool."""
-    global worker_df, worker_config, worker_spread_cost, worker_max_lookforward
+def init_worker(df: pd.DataFrame, config_dict: Dict, spread_cost: float, max_lookforward: int, gen_mode: str) -> None:
+    """Initializer for each worker process."""
+    global worker_df, worker_config, worker_spread_cost, worker_max_lookforward, worker_gen_mode
     worker_df = df
     worker_config = config_dict
     worker_spread_cost = spread_cost
     worker_max_lookforward = max_lookforward
+    worker_gen_mode = gen_mode
 
-
-# --- NUMBA-ACCELERATED CORE LOGIC (UNCHANGED) ---
+# --- NUMBA CORE LOGIC ---
 @njit
-def find_winning_trades_numba(
+def find_trades_numba(
     close_prices: np.ndarray, high_prices: np.ndarray, low_prices: np.ndarray, timestamps: np.ndarray,
     sl_ratios: np.ndarray, tp_ratios: np.ndarray, max_lookforward: int, spread_cost: float,
-    processing_limit: int
-) -> List[Tuple]:
-    """Executes the core trade simulation logic at high speed using Numba."""
-    # This core logic is identical to the previous version.
-    all_profitable_trades = []
+    processing_limit: int, capture_losses: bool
+) -> Tuple[List[Tuple], List[Tuple]]:
+    """
+    Simulates trades with STRICT SL priority.
+    Args:
+        capture_losses: If True, records losing trades. If False, skips them (saves RAM/CPU).
+    """
+    winning_trades = []
+    losing_trades = []
+    
+    n_sl = len(sl_ratios)
+    n_tp = len(tp_ratios)
+    limit_prices = len(close_prices)
+
     for i in range(processing_limit):
         entry_price = close_prices[i]
         entry_time = timestamps[i]
-        # --- Simulate BUY trades ---
-        for sl_r in sl_ratios:
-            for tp_r in tp_ratios:
-                sl_price = entry_price * (1 - sl_r)
+        search_limit = min(i + 1 + max_lookforward, limit_prices)
+
+        # --- BUY Simulation ---
+        for sl_idx in range(n_sl):
+            sl_r = sl_ratios[sl_idx]
+            sl_price = entry_price * (1 - sl_r)
+            
+            for tp_idx in range(n_tp):
+                tp_r = tp_ratios[tp_idx]
                 tp_price = entry_price * (1 + tp_r)
-                limit = min(i + 1 + max_lookforward, len(close_prices))
-                for j in range(i + 1, limit):
-                    if high_prices[j] >= (tp_price + spread_cost):
-                        all_profitable_trades.append((entry_time, 1, entry_price, sl_price, tp_price, sl_r, tp_r, timestamps[j]))
-                        break
+                
+                trade_result = 0 # 0: Pending/TimeOut, 1: Win, -1: Loss
+                exit_time = 0
+                
+                for j in range(i + 1, search_limit):
+                    # STRICT RULE: Check SL First
+                    # If Low touches SL, we are dead. Even if High touches TP in same candle.
                     if low_prices[j] <= sl_price:
+                        trade_result = -1
+                        exit_time = timestamps[j]
+                        break 
+                    
+                    # If SL not hit, Check TP (Must cover spread)
+                    if high_prices[j] >= (tp_price + spread_cost):
+                        trade_result = 1
+                        exit_time = timestamps[j]
                         break
-        # --- Simulate SELL trades ---
-        for sl_r in sl_ratios:
-            for tp_r in tp_ratios:
-                sl_price = entry_price * (1 + sl_r)
+                
+                # Record Result
+                if trade_result == 1:
+                    winning_trades.append((entry_time, 1, entry_price, sl_price, tp_price, sl_r, tp_r, exit_time, 1))
+                elif trade_result == -1 and capture_losses:
+                    losing_trades.append((entry_time, 1, entry_price, sl_price, tp_price, sl_r, tp_r, exit_time, 0))
+
+        # --- SELL Simulation ---
+        for sl_idx in range(n_sl):
+            sl_r = sl_ratios[sl_idx]
+            sl_price = entry_price * (1 + sl_r)
+            
+            for tp_idx in range(n_tp):
+                tp_r = tp_ratios[tp_idx]
                 tp_price = entry_price * (1 - tp_r)
-                limit = min(i + 1 + max_lookforward, len(close_prices))
-                for j in range(i + 1, limit):
-                    if low_prices[j] <= (tp_price - spread_cost):
-                        all_profitable_trades.append((entry_time, -1, entry_price, sl_price, tp_price, sl_r, tp_r, timestamps[j]))
-                        break
+                
+                trade_result = 0
+                exit_time = 0
+                
+                for j in range(i + 1, search_limit):
+                    # STRICT RULE: Check SL First (High >= SL)
                     if high_prices[j] >= sl_price:
+                        trade_result = -1
+                        exit_time = timestamps[j]
                         break
-    return all_profitable_trades
+                    
+                    # Check TP (Low <= TP - spread)
+                    if low_prices[j] <= (tp_price - spread_cost):
+                        trade_result = 1
+                        exit_time = timestamps[j]
+                        break
+                
+                if trade_result == 1:
+                    winning_trades.append((entry_time, -1, entry_price, sl_price, tp_price, sl_r, tp_r, exit_time, 1))
+                elif trade_result == -1 and capture_losses:
+                    losing_trades.append((entry_time, -1, entry_price, sl_price, tp_price, sl_r, tp_r, exit_time, 0))
 
+    return winning_trades, losing_trades
 
-# --- HELPER & WORKER FUNCTIONS ---
+# --- WORKER & HELPER FUNCTIONS ---
+
+def get_pip_size(instrument: str) -> float:
+    """Determines pip size using config map with fallback."""
+    pip_map = getattr(c, "PIP_SIZE_MAP", {})
+    
+    # 1. Exact Match
+    if instrument in pip_map: return pip_map[instrument]
+    
+    # 2. Substring Match (e.g., 'USDJPY' matches 'JPY')
+    for key, val in pip_map.items():
+        if key in instrument: return val
+        
+    return pip_map.get("DEFAULT", 0.0001)
 
 def get_config_from_filename(filename: str) -> Tuple[Optional[Dict], Optional[float]]:
-    """
-    Parses a filename to extract instrument and timeframe, returning the 
-    appropriate simulation configuration and spread cost.
-    """
-    # Expected format: EURUSD60.csv or similar
+    """Parses filename, gets instrument config, and calculates spread cost."""
     match = re.search(r"([A-Z0-9_]+?)(\d+)\.csv$", filename, re.IGNORECASE)
     if not match:
-        logger.warning(f"Could not parse timeframe or instrument from '{filename}'. Skipping.")
+        logger.warning(f"Could not parse timeframe from '{filename}'. Skipping.")
         return None, None
 
     instrument_raw, timeframe_num = match.group(1), match.group(2)
     instrument = instrument_raw.replace("_", "").upper()
     timeframe_key = f"{timeframe_num}m"
 
-    # Validate against presets in config.py
     if timeframe_key not in c.TIMEFRAME_PRESETS:
-        logger.warning(f"No preset found in config for timeframe '{timeframe_key}' (File: {filename}). Skipping.")
+        logger.warning(f"No preset for timeframe '{timeframe_key}' in config.")
         return None, None
 
     config_preset = c.TIMEFRAME_PRESETS[timeframe_key]
     
-    # Calculate Spread Cost
-    # JPY and Gold (XAU) usually have 2 decimal places (pip = 0.01), others 4 (pip = 0.0001)
-    pip_size = 0.01 if "JPY" in instrument or "XAU" in instrument else 0.0001
-    # TODO should make it dynamic from config file.
-    
-    # Retrieve spread in pips from config, defaulting if instrument not found
+    # Dynamic Pip & Spread Calculation
+    pip_size = get_pip_size(instrument)
     spread_in_pips = c.SIMULATION_SPREAD_PIPS.get(instrument, c.SIMULATION_SPREAD_PIPS.get("DEFAULT", 3.0))
     spread_cost = spread_in_pips * pip_size
 
-    logger.info(f"Config detected: {instrument} ({timeframe_key})")
-    logger.info(f"   -> Spread: {spread_in_pips} pips ({spread_cost:.5f}) | Max Lookforward: {config_preset['MAX_LOOKFORWARD']}")
-    
+    logger.info(f"Config: {instrument} ({timeframe_key}) | Pip: {pip_size} | Spread: {spread_in_pips} ({spread_cost:.5f})")
     return config_preset, spread_cost
 
-
 def process_chunk_task(task_indices: Tuple[int, int]) -> List[Tuple]:
-    """
-    The "Producer" worker function, executed in parallel by the Pool.
-    Extracts numpy arrays from global worker variables and calls Numba logic.
-    """
+    """Worker function: Simulates trades based on Mode."""
     start_index, end_index = task_indices
-    
-    # Slice the dataframe
     df_slice = worker_df.iloc[start_index:end_index]
     
-    # Determine valid processing range (cannot simulate beyond data end)
     processing_limit = min(c.BRONZE_INPUT_CHUNK_SIZE, len(worker_df) - start_index)
     processing_limit = min(processing_limit, len(df_slice) - worker_max_lookforward)
     
@@ -184,29 +218,51 @@ def process_chunk_task(task_indices: Tuple[int, int]) -> List[Tuple]:
     low = df_slice["low"].values
     timestamps = df_slice["time"].values.astype("datetime64[ns]").astype(np.int64)
     
-    # Ensure SL/TP ratios are numpy arrays (as defined in config.py)
-    # The config now uses np.arange, so these are already arrays.
     sl_ratios = worker_config["SL_RATIOS"]
     tp_ratios = worker_config["TP_RATIOS"]
+    
+    # Logic: Do we need to capture losses?
+    capture_losses = (worker_gen_mode in ['BALANCED', 'ALL'])
 
-    return find_winning_trades_numba(
+    wins, losses = find_trades_numba(
         close, high, low, timestamps, 
         sl_ratios, tp_ratios,
-        worker_max_lookforward, worker_spread_cost, processing_limit
+        worker_max_lookforward, worker_spread_cost, processing_limit, capture_losses
     )
-
+    
+    # --- RESULT AGGREGATION LOGIC ---
+    if worker_gen_mode == 'WINS_ONLY':
+        return wins
+        
+    elif worker_gen_mode == 'ALL':
+        # Return everything. Warning: High Data Volume.
+        wins.extend(losses)
+        return wins
+        
+    elif worker_gen_mode == 'BALANCED':
+        # Sample losses to match wins (1:1)
+        if losses:
+            num_wins = len(wins)
+            if num_wins > 0:
+                count_to_sample = min(len(losses), num_wins)
+                sampled_losses = random.sample(losses, count_to_sample)
+                wins.extend(sampled_losses)
+            else:
+                # Optional: If 0 wins, return empty? Or return sampled losses to learn 'bad' conditions?
+                # For safety, returning empty prevents training on pure noise.
+                pass
+        return wins
+        
+    return wins
 
 def _create_df_from_results(data: List[Tuple]) -> pd.DataFrame:
-    """
-    Converts a list of raw trade tuples into a structured, optimized DataFrame.
-    Applies categorical types and cleans up columns.
-    """
+    """Converts trade tuples into DataFrame."""
     if not data:
         return pd.DataFrame()
 
     df = pd.DataFrame(data, columns=[
         "entry_time", "trade_type", "entry_price", "sl_price", "tp_price",
-        "sl_ratio", "tp_ratio", "exit_time"
+        "sl_ratio", "tp_ratio", "exit_time", "outcome"
     ])
 
     if df.empty:
@@ -216,12 +272,12 @@ def _create_df_from_results(data: List[Tuple]) -> pd.DataFrame:
     df['entry_time'] = pd.to_datetime(df['entry_time'], unit='ns')
     df['exit_time'] = pd.to_datetime(df['exit_time'], unit='ns')
     
-    # Map trade_type 1/-1 to readable string and categorize
+    # Map trade_type: 1 -> 'buy', -1 -> 'sell'
     df['trade_type'] = np.where(df['trade_type'] == 1, 'buy', 'sell')
     df['trade_type'] = df['trade_type'].astype('category')
     
-    # Set outcome to 'win' (since this script only finds winning trades)
-    df['outcome'] = 'win'
+    # Outcome: 1 -> 'win', 0 -> 'loss'
+    df['outcome'] = np.where(df['outcome'] == 1, 'win', 'loss')
     df['outcome'] = df['outcome'].astype('category')
     
     # Optimize numeric columns to float32 to save RAM (Parquet is efficient with this)
@@ -230,13 +286,11 @@ def _create_df_from_results(data: List[Tuple]) -> pd.DataFrame:
         
     return df
 
-
-# --- MAIN PROCESSING ORCHESTRATOR ---
+# --- MAIN ORCHESTRATOR ---
 
 def process_file_pipelined(
     input_file: str, output_file: str, config_dict: Dict, spread_cost: float
 ) -> str:
-    """Orchestrates data generation for a single file, writing to Parquet."""
     filename = os.path.basename(input_file)
     logger.info(f"Starting simulation for {filename}...")
 
@@ -249,7 +303,7 @@ def process_file_pipelined(
     # --- 2. Validation ---
     max_lookforward = config_dict["MAX_LOOKFORWARD"]
     if len(df) <= max_lookforward:
-        return f"ERROR: Not enough data ({len(df)} rows) for lookforward of {max_lookforward}."
+        return f"ERROR: Not enough data ({len(df)} rows)."
 
     if os.path.exists(output_file):
         logger.warning(f"Output file {os.path.basename(output_file)} exists. Overwriting.")
@@ -258,63 +312,57 @@ def process_file_pipelined(
     # --- 3. Parallel Processing Setup ---
     # Create chunks indices
     tasks = [(i, i + c.BRONZE_INPUT_CHUNK_SIZE + max_lookforward) for i in range(0, len(df), c.BRONZE_INPUT_CHUNK_SIZE)]
-    if not tasks: return "INFO: No processable chunks found."
-
-    profitable_trades_accumulator = []
-    total_trades_found = 0
+    
+    accumulator = []
+    total_trades = 0
     writer = None
+    gen_mode = getattr(c, 'BRONZE_GENERATION_MODE', 'WINS_ONLY')
 
     # --- 4. Execution ---
     try:
-        # Initialize workers with read-only copy of data and config
-        pool_init_args = (df, config_dict, spread_cost, max_lookforward)
+        pool_init_args = (df, config_dict, spread_cost, max_lookforward, gen_mode)
         
-        # Use updated CPU usage from config
         with Pool(processes=c.MAX_CPU_USAGE, initializer=init_worker, initargs=pool_init_args) as pool:
+            results_iter = pool.imap(process_chunk_task, tasks)
+            pbar = tqdm(results_iter, total=len(tasks), desc=f"Scanning {filename} [{gen_mode}]", unit="chunk")
             
-            results_iterator = pool.imap(process_chunk_task, tasks)
-            
-            # Progress bar
-            progress_bar = tqdm(results_iterator, total=len(tasks), desc=f"Scanning {filename}", unit="chunk")
-            
-            for results_list in progress_bar:
-                if results_list:
-                    profitable_trades_accumulator.extend(results_list)
+            for res in pbar:
+                if res: accumulator.extend(res)
                 
                 # Memory Management: Flush to disk if buffer fills up
-                if len(profitable_trades_accumulator) >= c.BRONZE_OUTPUT_CHUNK_SIZE:
-                    chunk_df = _create_df_from_results(profitable_trades_accumulator)
+                if len(accumulator) >= c.BRONZE_OUTPUT_CHUNK_SIZE:
+                    chunk_df = _create_df_from_results(accumulator)
                     if not chunk_df.empty:
                         table = pa.Table.from_pandas(chunk_df, preserve_index=False)
                         if writer is None:
                             writer = pq.ParquetWriter(output_file, table.schema)
                         writer.write_table(table)
-                        total_trades_found += len(chunk_df)
-                    profitable_trades_accumulator.clear()
+                        total_trades += len(chunk_df)
+                    accumulator.clear()
         
         # --- 5. Final Flush ---
-        if profitable_trades_accumulator:
-            final_chunk_df = _create_df_from_results(profitable_trades_accumulator)
-            if not final_chunk_df.empty:
-                table = pa.Table.from_pandas(final_chunk_df, preserve_index=False)
+        if accumulator:
+            chunk_df = _create_df_from_results(accumulator)
+            if not chunk_df.empty:
+                table = pa.Table.from_pandas(chunk_df, preserve_index=False)
                 if writer is None:
                     writer = pq.ParquetWriter(output_file, table.schema)
                 writer.write_table(table)
-                total_trades_found += len(final_chunk_df)
+                total_trades += len(chunk_df)
 
     except Exception as e:
-        logger.error(f"Processing interrupted: {e}")
-        return f"ERROR: Exception during processing: {e}"
+        logger.error(f"Processing error: {e}")
+        return f"ERROR: {e}"
     finally:
         if writer:
             writer.close()
 
-    if total_trades_found == 0:
+    if total_trades == 0:
         if os.path.exists(output_file):
             os.remove(output_file)
-        return f"No winning trades found. Checked {len(df)} candles against config settings."
+        return "No trades found matching criteria."
     
-    return f"SUCCESS: Generated {total_trades_found:,} possibilities. Saved to {os.path.basename(output_file)}."
+    return f"SUCCESS: Generated {total_trades:,} possibilities. Saved to {os.path.basename(output_file)}."
 
 
 def main() -> None:
@@ -324,30 +372,31 @@ def main() -> None:
     p.ensure_directories()
 
     start_time = time.time()
-    logger.info("--- Bronze Layer: The Possibility Engine (Updated V17) ---")
-    logger.info(f"Configuration loaded. CPU Cores allowed: {c.MAX_CPU_USAGE}")
-    
+    logger.info("--- Bronze Layer: The Possibility Engine (V19 - Balanced) ---")
     # JIT Warmup (Compiles the Numba function with dummy data so it's ready for the real work)
     logger.info("Warming up simulation engine...")
-    dummy_prices = np.random.rand(10)
-    dummy_time = np.arange(10, dtype=np.int64)
-    dummy_sl = np.array([0.01])
-    dummy_tp = np.array([0.02])
-    find_winning_trades_numba(dummy_prices, dummy_prices, dummy_prices, dummy_time, dummy_sl, dummy_tp, 1, 0.0001, 5)
+    find_trades_numba(np.random.rand(10), 
+                      np.random.rand(10), 
+                      np.random.rand(10), 
+                      np.arange(10, dtype=np.int64), np.array([0.01]), 
+                      np.array([0.02]), 
+                      1, 
+                      0.0001, 
+                      5, 
+                      True)
     logger.info("Engine ready.")
 
     # File Selection Logic
     files_to_process = []
-    target_file_arg = sys.argv[1] if len(sys.argv) > 1 else None
+    target_arg = sys.argv[1] if len(sys.argv) > 1 else None
     
-    if target_file_arg:
-        # User passed a specific file
-        target_path = os.path.join(p.RAW_DATA_DIR, f"{target_file_arg}.csv")
-        if os.path.exists(target_path):
-            files_to_process = [f"{target_file_arg}.csv"]
-            logger.info(f"Targeted Mode: Processing '{target_file_arg}'")
+    if target_arg:
+        path = os.path.join(p.RAW_DATA_DIR, f"{target_arg}.csv")
+        if os.path.exists(path):
+            files_to_process = [f"{target_arg}.csv"]
+            logger.info(f"Targeted Mode: Processing '{target_arg}'")
         else:
-            logger.error(f"Target file not found: {target_path}")
+            logger.error(f"Target file not found: {path}")
     else:
         # Standard Mode: Scan for new files
         new_files = scan_new_files(p.RAW_DATA_DIR, p.BRONZE_DATA_DIR)
@@ -359,17 +408,15 @@ def main() -> None:
 
     # Processing Loop
     logger.info(f"Processing {len(files_to_process)} file(s)...")
-    for filename in files_to_process:
-        input_path = os.path.join(p.RAW_DATA_DIR, filename)
-        output_path = os.path.join(p.BRONZE_DATA_DIR, filename.replace('.csv', '.parquet'))
+    for fname in files_to_process:
+        input_path = os.path.join(p.RAW_DATA_DIR, fname)
+        output_path = os.path.join(p.BRONZE_DATA_DIR, fname.replace('.csv', '.parquet'))
         
         # 1. Get Dynamic Config for this specific file/timeframe
-        config_dict, spread_cost = get_config_from_filename(filename)
-        
+        config_dict, spread_cost = get_config_from_filename(fname)
         if config_dict:
-            # 2. Run Pipeline
-            result_msg = process_file_pipelined(input_path, output_path, config_dict, spread_cost)
-            logger.info(f"RESULT [{filename}]: {result_msg}")
+            res = process_file_pipelined(input_path, output_path, config_dict, spread_cost)
+            logger.info(f"RESULT [{fname}]: {res}")
         else:
             logger.error(f"Skipping {filename}: Configuration mismatch (Instrument/Timeframe not in config.py).")
 

@@ -32,12 +32,20 @@ FILE_LOG_LEVEL = logging.DEBUG
 BRONZE_INPUT_CHUNK_SIZE: int = 5_000
 
 # Controls how many results are held in memory before writing to disk.
-# Larger values can be faster but use more RAM.
 BRONZE_OUTPUT_CHUNK_SIZE: int = 500_000
 
 # The expected column names for the raw input CSV files.
-# The script will use as many columns as are present in the file.
 RAW_DATA_COLUMNS: list[str] = ["time", "open", "high", "low", "close", "volume"]
+
+# --- GENERATION MODE (NEW) ---
+# Determines what data to save for the AI.
+# Options: 'WINS_ONLY', 'BALANCED' (1:1), 'ALL' (No sampling, huge files)
+BRONZE_GENERATION_MODE: str = 'ALL' 
+
+# If 'BALANCED', this limits the maximum number of samples per chunk to prevent
+# data explosion. If we find 10k wins, we only sample 10k losses.
+# This keeps the dataset manageable while providing negative examples.
+BRONZE_MAX_SAMPLES_PER_CHUNK: int = 200_000
 
 # The core simulation grid. Defines SL/TP ratios and the max trade holding
 # period (`MAX_LOOKFORWARD`) for different chart timeframes.
@@ -211,13 +219,26 @@ PLATINUM_DISCOVERY_BATCH_SIZE: int = 20
 # --- 6. DIAMOND LAYER CONFIGURATION ---
 # Settings for all Diamond layer scripts (Prepper, Backtester, Validator).
 
-# --- 7. SIMULATION & COST MODEL SETTINGS (NEW SECTION) ---
-# This is the single source of truth for all simulation costs and parameters.
+# --- 7. SIMULATION & COST MODEL SETTINGS ---
 
-# Assumed spread in pips for cost calculation, used by Bronze and Diamond layers.
+# Assumed spread in pips for cost calculation.
 SIMULATION_SPREAD_PIPS: dict[str, float] = {
     "DEFAULT": 3.0, "EURUSD": 1.5, "GBPUSD": 2.0, "AUDUSD": 2.5,
     "USDJPY": 2.0, "USDCAD": 2.5, "XAUUSD": 20.0,
+}
+
+# --- PIP SIZE MAP (NEW) ---
+# Explicitly defines the pip size for instruments to avoid guessing.
+# 0.01 for JPY pairs and Metals/Indices, 0.0001 for standard Forex.
+PIP_SIZE_MAP: dict[str, float] = {
+    "DEFAULT": 0.0001,
+    "JPY": 0.01,
+    "XAU": 0.01,
+    "XAG": 0.01,
+    "BTC": 1.0, # Just in case
+    "ETH": 1.0,
+    "US30": 1.0,
+    "SPX": 0.1
 }
 
 # Assumed round-trip commission cost per standard lot (100,000 units).
