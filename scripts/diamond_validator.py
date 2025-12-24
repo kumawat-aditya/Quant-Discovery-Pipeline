@@ -37,7 +37,7 @@ sys.path.append(os.path.dirname(SCRIPT_DIR))
 
 try:
     import config.config as config
-    from config.logger_setup import setup_logging
+    from utils.logger import setup_logging
     # ### <<< CHANGE: Import the new shared simulation engine >>>
     from scripts.simulation_engine import run_simulation, init_worker
 except ImportError as e:

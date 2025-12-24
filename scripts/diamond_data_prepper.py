@@ -51,7 +51,7 @@ sys.path.append(os.path.dirname(SCRIPT_DIR))
 
 try:
     import config.config as config
-    from config.logger_setup import setup_logging
+    from utils.logger import setup_logging
 except ImportError as e:
     logging.critical(f"Failed to import project modules. Ensure config.py and logger_setup.py are accessible: {e}")
     sys.exit(1)
