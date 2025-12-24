@@ -388,7 +388,7 @@ def main() -> None:
             res = process_file_pipelined(input_path, output_path, config_dict, spread_cost)
             logger.info(f"RESULT [{fname}]: {res}")
         else:
-            logger.error(f"Skipping {filename}: Configuration mismatch (Instrument/Timeframe not in config.py).")
+            logger.error(f"Skipping {fname}: Configuration mismatch (Instrument/Timeframe not in config.py).")
 
     end_time = time.time()
     logger.info(f"Bronze layer generation complete. Total Runtime: {end_time - start_time:.2f}s")
