@@ -1,4 +1,4 @@
-# src/layers/diamond/trainer.py (V2.0 - Memory Optimized)
+# src/layers/diamond/trainer.py (V2.1 - Quantile Fix)
 
 """
 Diamond Layer: The Model Trainer
@@ -7,10 +7,9 @@ This script acts as the 'Strategy Factory'. It consumes the massive, unified
 Platinum Dataset (Context + Trade Params + Outcome) and trains a gradient 
 boosting model to predict the probability of a win.
 
-Updates in V2.0:
-- Implements 'BatchIterator' to fix OOM (Out of Memory) crashes.
-- Uses QuantileDMatrix for histogram-based training (low memory).
-- Ensures correct integer sorting of shard files for Time-Series split.
+Updates in V2.1:
+- Fixed ValueError by passing 'ref=dtrain' to validation QuantileDMatrix.
+- Optimized logging to show progress during DMatrix construction.
 """
 
 import os
@@ -34,7 +33,7 @@ try:
     import config.config as c
     from src.utils import paths as p
     from src.utils.logger import setup_logging 
-    from src.utils.file_selector import select_files_interactively
+    from src.utils.file_selector import scan_new_files, select_files_interactively
 except ImportError as e:
     print(f"CRITICAL: Import failed: {e}")
     sys.exit(1)
@@ -65,7 +64,6 @@ class ParquetBatchIterator(xgb.DataIter):
             
             # Separate Target and Features
             if 'target' not in df.columns:
-                # Skip malformed shards if any
                 self._it += 1
                 return 1 
                 
@@ -106,15 +104,12 @@ def get_sorted_shards(instrument_name: str) -> tuple:
         logger.error(f"Dataset not found: {dataset_dir}")
         return [], []
 
-    # Get all parquet files
     files = list(dataset_dir.glob("*.parquet"))
     if not files:
         logger.error("No data shards found.")
         return [], []
 
-    # SORT BY INTEGER INDEX
-    # Files are named 'part_0.parquet', 'part_10.parquet'.
-    # Standard sort gives 0, 1, 10, 2. We need 0, 1, 2, 10.
+    # Sort by integer index
     def extract_index(f_path):
         match = re.search(r'part_(\d+)', f_path.name)
         return int(match.group(1)) if match else -1
@@ -122,8 +117,6 @@ def get_sorted_shards(instrument_name: str) -> tuple:
     sorted_files = sorted(files, key=extract_index)
     
     # Time-Series Split (80/20 by file count)
-    # Since Platinum Builder creates shards sequentially by time, 
-    # splitting the file list maintains time order.
     split_idx = int(len(sorted_files) * (1 - c.DIAMOND_TEST_SIZE))
     # Ensure at least one val file
     split_idx = min(split_idx, len(sorted_files) - 1)
@@ -149,14 +142,15 @@ def train_xgb_model(instrument_name: str):
     val_iter = ParquetBatchIterator(val_files)
 
     # 3. Create QuantileDMatrix
-    # QuantileDMatrix is optimized for the 'hist' tree method and iterators.
-    # It builds histograms directly from the stream, saving massive memory.
-    logger.info("  - Building DMatrices (This reads data once)...")
+    # QuantileDMatrix reads data immediately to create histogram sketches.
+    logger.info("  - Building Training Matrix (Reading Data)...")
     dtrain = xgb.QuantileDMatrix(train_iter)
-    dval = xgb.QuantileDMatrix(val_iter)
     
-    # Note: We can't get feature names easily from DMatrix constructed via iterator
-    # So we read the first file just to get column names for importance plot later
+    logger.info("  - Building Validation Matrix (Aligning with Train)...")
+    # CRITICAL FIX: Must pass ref=dtrain to ensure cuts match!
+    dval = xgb.QuantileDMatrix(val_iter, ref=dtrain)
+    
+    # Get feature names for importance plot
     sample_df = pd.read_parquet(train_files[0])
     drop_cols = ['target', 'entry_time', 'exit_time']
     feature_names = [col for col in sample_df.columns if col not in drop_cols]
@@ -168,7 +162,6 @@ def train_xgb_model(instrument_name: str):
     logger.info(f"  - Starting Training ({c.DIAMOND_BOOST_ROUNDS} rounds)...")
     start_ts = time.time()
     
-    # Ensure parameter compatibility
     params = c.DIAMOND_XGB_PARAMS.copy()
     params['nthread'] = c.MAX_CPU_USAGE
     
@@ -186,12 +179,11 @@ def train_xgb_model(instrument_name: str):
     # 5. Evaluation
     logger.info("  - Evaluating Performance...")
     
-    # We need to manually iterate validation data again for sklearn metrics
-    # because DMatrix doesn't store the raw labels in an easily accessible way for huge data
     y_true = []
     y_pred_prob = []
     
     # Predict in batches to save RAM
+    # Note: We re-read raw files here because DMatrix doesn't expose labels easily for massive datasets
     for f in tqdm(val_files, desc="Running Validation"):
         df = pd.read_parquet(f)
         if 'target' not in df.columns: continue
@@ -243,39 +235,35 @@ def main():
     setup_logging(p.LOGS_DIR, c.CONSOLE_LOG_LEVEL, c.FILE_LOG_LEVEL, "diamond_trainer")
     p.ensure_directories()
     
-    logger.info("--- Diamond Layer: Strategy Trainer (V2.0 - Memory Safe) ---")
-    
-    if not p.PLATINUM_TARGETS.exists():
-        logger.error(f"Platinum Targets dir not found: {p.PLATINUM_TARGETS}")
-        return
+    start_time = time.time()
+    logger.info("--- Diamond Layer: Strategy Trainer (V2.1 - Quantile Fix) ---")
 
-    instruments = [d.name for d in p.PLATINUM_TARGETS.iterdir() if d.is_dir()]
+    files_to_process = []
+    target_arg = sys.argv[1] if len(sys.argv) > 1 else None
     
-    if not instruments:
-        logger.info("No Platinum datasets found to train on.")
-        return
-
-    print("\nAvailable Instruments:")
-    for i, inst in enumerate(sorted(instruments)):
-        print(f"[{i+1}] {inst}")
-        
-    choice = input("\nSelect instrument (e.g., 1) or 'a' for all: ").strip().lower()
-    
-    selected = []
-    if choice == 'a':
-        selected = instruments
+    if target_arg:
+        path = os.path.join(p.PLATINUM_TARGETS, target_arg)
+        if os.path.exists(path):
+            files_to_process = [target_arg]
+            logger.info(f"Targeted Mode: Processing '{target_arg}'")
+        else:
+            logger.error(f"Target file not found: {path}")
     else:
-        try:
-            idx = int(choice) - 1
-            if 0 <= idx < len(instruments):
-                selected = [sorted(instruments)[idx]]
-        except ValueError:
-            logger.error("Invalid input.")
-            return
+        # Standard Mode: Scan for new files
+        new_files = scan_new_files(p.PLATINUM_TARGETS, p.BRONZE_DATA_DIR)
+        files_to_process = select_files_interactively(new_files)
 
-    for instr in selected:
-        logger.info(f"--- Starting Training for {instr} ---")
-        train_xgb_model(instr)
+    if not files_to_process:
+        logger.info("No files selected. Exiting.")
+        return
+
+    logger.info(f"Processing {len(files_to_process)} file(s)...")
+    for instrument in files_to_process:
+        logger.info(f"--- Starting Training for {instrument} ---")
+        train_xgb_model(instrument)
+    
+    end_time = time.time()
+    logger.info(f"Diamond layer training complete. Total Runtime: {end_time - start_time:.2f}s")
 
 if __name__ == "__main__":
     main()
