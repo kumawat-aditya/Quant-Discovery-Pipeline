@@ -1,51 +1,20 @@
-"""
-Central Configuration File for the Strategy Finder Pipeline.
-
-This file consolidates all user-configurable parameters and settings for every
-script in the project. By centralizing configuration, we ensure consistency,
-reduce redundancy, and make the entire system easier to manage and tune.
-"""
+# src/config.py
 
 import logging
 import numpy as np
 from multiprocessing import cpu_count
 
-# --- 1. GLOBAL EXECUTION & LOGGING SETTINGS ---
-# These settings apply to all scripts in the pipeline.
-
-# Set the number of CPU cores to use for parallel processing.
-# It's wise to leave 1 or 2 cores free for system stability.
+# --- GLOBAL EXECUTION ---
 MAX_CPU_USAGE: int = max(1, cpu_count() - 2)
-
-# The logging level for the console output.
-# Options: logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR
 CONSOLE_LOG_LEVEL = logging.INFO
-
-# The logging level for the file output.
 FILE_LOG_LEVEL = logging.DEBUG
 
-
-# --- 2. BRONZE LAYER CONFIGURATION ---
-# Settings specific to `bronze_data_generator.py`.
-
-# Defines how many candles are in each work package for the CPU cores.
+# --- BRONZE LAYER ---
 BRONZE_INPUT_CHUNK_SIZE: int = 5_000
-
-# Controls how many results are held in memory before writing to disk.
 BRONZE_OUTPUT_CHUNK_SIZE: int = 500_000
-
-# The expected column names for the raw input CSV files.
-RAW_DATA_COLUMNS: list[str] = ["time", "open", "high", "low", "close", "volume"]
-
-# --- GENERATION MODE (NEW) ---
-# Determines what data to save for the AI.
-# Options: 'WINS_ONLY', 'BALANCED' (1:1), 'ALL' (No sampling, huge files)
-BRONZE_GENERATION_MODE: str = 'BALANCED' 
-
-# If 'BALANCED', this limits the maximum number of samples per chunk to prevent
-# data explosion. If we find 10k wins, we only sample 10k losses.
-# This keeps the dataset manageable while providing negative examples.
+BRONZE_GENERATION_MODE: str = 'BALANCED' # 'WINS_ONLY', 'BALANCED', 'ALL'
 BRONZE_MAX_SAMPLES_PER_CHUNK: int = 200_000
+RAW_DATA_COLUMNS: list[str] = ["time", "open", "high", "low", "close", "volume"]
 
 # The core simulation grid. Defines SL/TP ratios and the max trade holding
 # period (`MAX_LOOKFORWARD`) for different chart timeframes.
@@ -57,7 +26,6 @@ TIMEFRAME_PRESETS: dict[str, dict] = {
     "60m": {"SL_RATIOS": np.arange(0.005, 0.0505, 0.001), "TP_RATIOS": np.arange(0.005, 0.1005, 0.001), "MAX_LOOKFORWARD": 600},
     "240m": {"SL_RATIOS": np.arange(0.010, 0.1005, 0.001), "TP_RATIOS": np.arange(0.010, 0.2005, 0.001), "MAX_LOOKFORWARD": 800},
 }
-
 
 # --- 3. SILVER LAYER CONFIGURATION ---
 # Settings specific to `silver_data_generator.py`.
@@ -204,24 +172,25 @@ PLATINUM_DENSITY_LIFT_THRESHOLD: float = 1.5
 
 # The number of blueprints to process in a single batch by each worker process.
 PLATINUM_DISCOVERY_BATCH_SIZE: int = 20
+# --- DIAMOND LAYER (Model Trainer) ---
+# Parameters for the Unified XGBoost Model
+DIAMOND_XGB_PARAMS: dict = {
+    'objective': 'binary:logistic',
+    'eval_metric': 'logloss',
+    'eta': 0.05,             # Learning Rate (Lower is more robust)
+    'max_depth': 8,          # Depth (Higher = more complex patterns)
+    'subsample': 0.8,        # Stochastic row sampling to prevent overfitting
+    'colsample_bytree': 0.8, # Feature sampling
+    'tree_method': 'hist',   # Fast histogram training
+    'nthread': MAX_CPU_USAGE
+    # 'device': 'cuda'       # Uncomment if GPU is available
+}
 
+DIAMOND_BOOST_ROUNDS: int = 1000
+DIAMOND_EARLY_STOPPING: int = 50
+DIAMOND_TEST_SIZE: float = 0.2  # Last 20% of data used for validation (Time Series Split)
 
-
-# --- 6. DIAMOND LAYER CONFIGURATION ---
-# Settings for all Diamond layer scripts (Prepper, Backtester, Validator).
-
-# (No specific settings are needed for the Prepper in this version,
-# but we are creating the section for future use. It will still use
-# the global MAX_CPU_USAGE setting.)
-
-
-
-# --- 6. DIAMOND LAYER CONFIGURATION ---
-# Settings for all Diamond layer scripts (Prepper, Backtester, Validator).
-
-# --- 7. SIMULATION & COST MODEL SETTINGS ---
-
-# Assumed spread in pips for cost calculation.
+# --- SIMULATION CONSTANTS ---
 SIMULATION_SPREAD_PIPS: dict[str, float] = {
     "DEFAULT": 3.0, "EURUSD": 1.5, "GBPUSD": 2.0, "AUDUSD": 2.5,
     "USDJPY": 2.0, "USDCAD": 2.5, "XAUUSD": 20.0,

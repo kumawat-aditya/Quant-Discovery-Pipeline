@@ -48,26 +48,20 @@ except ImportError:
     sys.exit(1)
 
 # --- CONFIGURATION IMPORT ---
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.abspath(os.path.join(current_dir, "../../../"))
-config_dir = os.path.join(project_root, "config")
-utils_dir = os.path.join(project_root, "src", "utils")
-
-sys.path.append(config_dir)
-sys.path.append(utils_dir)
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+sys.path.append(project_root)
 
 try:
-    import config as c
-    import paths as p # type: ignore
-    from logger_setup import setup_logging # type: ignore
-    from file_selector import scan_new_files, select_files_interactively # type: ignore
-    from raw_data_loader import load_and_clean_raw_ohlc_csv # type: ignore
+    import config.config as c
+    from src.utils import paths as p
+    from src.utils.logger import setup_logging 
+    from src.utils.file_selector import scan_new_files, select_files_interactively # type: ignore
+    from src.utils.raw_data_loader import load_and_clean_raw_ohlc_csv # type: ignore
 except ImportError as e:
     logging.basicConfig(level=logging.INFO)
-    logging.critical(f"Failed to import project modules. Ensure config.py and utils are accessible: {e}")
+    logging.critical(f"Failed to import project modules: {e}")
     sys.exit(1)
 
-# Initialize logger for this module
 logger = logging.getLogger(__name__)
 
 
@@ -422,6 +416,7 @@ def create_silver_data(
 def main() -> None:
     """Main execution function."""
     setup_logging(p.LOGS_DIR, c.CONSOLE_LOG_LEVEL, c.FILE_LOG_LEVEL, "silver_layer")
+    p.ensure_directories()
     
     start_time = time.time()
     logger.info("--- Silver Layer: The Enrichment Engine (V6.0 - Dynamic Config) ---")
@@ -436,7 +431,7 @@ def main() -> None:
             return
         
         raw_path = os.path.join(p.RAW_DATA_DIR, f"{target_file_arg}.csv")
-        features_path = os.path.join(p.SILVER_DATA_FEATURES_DIR, f"{target_file_arg}.parquet")
+        features_path = os.path.join(p.SILVER_FEATURES_DIR, f"{target_file_arg}.parquet")
         
         if not os.path.exists(raw_path):
             logger.error(f"Raw data file not found: {raw_path}")
@@ -459,7 +454,7 @@ def main() -> None:
                 logger.error(f"Target file not found: {target_path}")
                 return
         else:
-            new_files = scan_new_files(p.BRONZE_DATA_DIR, p.SILVER_DATA_CHUNKED_OUTCOMES_DIR)
+            new_files = scan_new_files(p.BRONZE_DATA_DIR, p.SILVER_CHUNKED_DIR)
             # TODO we can use silver features too...
             files_to_process = select_files_interactively(new_files)
 
@@ -474,8 +469,8 @@ def main() -> None:
                 paths = {
                     "bronze_path": os.path.join(p.BRONZE_DATA_DIR, filename),
                     "raw_path": os.path.join(p.RAW_DATA_DIR, raw_filename),
-                    "features_path": os.path.join(p.SILVER_DATA_FEATURES_DIR, filename),
-                    "chunked_outcomes_dir": os.path.join(p.SILVER_DATA_CHUNKED_OUTCOMES_DIR, name),
+                    "features_path": os.path.join(p.SILVER_FEATURES_DIR, filename),
+                    "chunked_outcomes_dir": os.path.join(p.SILVER_CHUNKED_DIR, name),
                     "features_only": False
                 }
                 

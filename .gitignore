@@ -1,6 +1,13 @@
 # Ignore environment folder
 strategy_finder_env/
 
+# IGNORE DATA FORLDERS EXCEPT RAW DATA
+data/bronze/*
+data/silver/*
+data/gold/*
+data/platinum/*
+data/diamond/*
+
 # Ignore bronze data files
 bronze_data/*
 

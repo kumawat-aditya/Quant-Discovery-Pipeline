@@ -29,22 +29,17 @@ except ImportError:
     sys.exit(1)
 
 # --- CONFIGURATION IMPORT ---
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.abspath(os.path.join(current_dir, "../../../"))
-config_dir = os.path.join(project_root, "config")
-utils_dir = os.path.join(project_root, "src", "utils")
-
-sys.path.append(config_dir)
-sys.path.append(utils_dir)
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+sys.path.append(project_root)
 
 try:
-    import config as c
-    import paths as p # type: ignore
-    from logger_setup import setup_logging # type: ignore
-    from file_selector import scan_new_files, select_files_interactively # type: ignore
+    import config.config as c
+    from src.utils import paths as p
+    from src.utils.logger import setup_logging 
+    from src.utils.file_selector import scan_new_files, select_files_interactively # type: ignore
 except ImportError as e:
     logging.basicConfig(level=logging.INFO)
-    logging.critical(f"Failed to import project modules. Ensure config.py and utils are accessible: {e}")
+    logging.critical(f"Failed to import project modules: {e}")
     sys.exit(1)
 
 # Initialize logger for this module
@@ -245,6 +240,7 @@ def _process_single_file(paths_tuple: Tuple[str, str]) -> str:
 def main() -> None:
     """Main execution function."""
     setup_logging(p.LOGS_DIR, c.CONSOLE_LOG_LEVEL, c.FILE_LOG_LEVEL, "gold_layer")
+    p.ensure_directories()
 
     start_time = time.time()
     logger.info("--- Gold Layer: The ML Preprocessor (V7.1 - Strict Scaling) ---")
@@ -253,14 +249,14 @@ def main() -> None:
     target_file_arg = sys.argv[1] if len(sys.argv) > 1 else None
     
     if target_file_arg:
-        silver_path = os.path.join(p.SILVER_DATA_FEATURES_DIR, f"{target_file_arg}.parquet")
+        silver_path = os.path.join(p.SILVER_FEATURES_DIR, f"{target_file_arg}.parquet")
         if os.path.exists(silver_path):
             files_to_process = [f"{target_file_arg}.parquet"]
             logger.info(f"Targeted Mode: Processing '{target_file_arg}'")
         else:
             logger.error(f"Target file not found: {silver_path}")
     else:
-        new_files = scan_new_files(p.SILVER_DATA_FEATURES_DIR, p.GOLD_DATA_FEATURES_DIR)
+        new_files = scan_new_files(p.SILVER_FEATURES_DIR, p.GOLD_FEATURES_DIR)
         files_to_process = select_files_interactively(new_files)
 
     if not files_to_process:
@@ -270,8 +266,8 @@ def main() -> None:
     logger.info(f"Queued {len(files_to_process)} file(s): {', '.join(files_to_process)}")
     for filename in files_to_process:
         logger.info(f"--- Processing {filename} ---")
-        silver_path = os.path.join(p.SILVER_DATA_FEATURES_DIR, filename)
-        gold_path = os.path.join(p.GOLD_DATA_FEATURES_DIR, filename)
+        silver_path = os.path.join(p.SILVER_FEATURES_DIR, filename)
+        gold_path = os.path.join(p.GOLD_FEATURES_DIR, filename)
         
         result = _process_single_file((silver_path, gold_path))
         logger.info(result)

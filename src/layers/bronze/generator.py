@@ -1,4 +1,4 @@
-# bronze_data_generator.py (V20 - Full Control & Strict Logic)
+# bronze_data_generator.py (V20.1 - Stats Reporting)
 
 """
 Bronze Layer: The Possibility Engine
@@ -33,31 +33,23 @@ except ImportError:
     sys.exit(1)
 
 # --- CONFIGURATION IMPORT ---
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.abspath(os.path.join(current_dir, "../../../"))
-config_dir = os.path.join(project_root, "config")
-utils_dir = os.path.join(project_root, "src", "utils")
-
-sys.path.append(config_dir)
-sys.path.append(utils_dir)
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+sys.path.append(project_root)
 
 try:
-    import config as c
-    import paths as p # type: ignore
-    from logger_setup import setup_logging # type: ignore
-    from file_selector import scan_new_files, select_files_interactively # type: ignore
-    from raw_data_loader import load_and_clean_raw_ohlc_csv # type: ignore
+    import config.config as c
+    from src.utils import paths as p
+    from src.utils.logger import setup_logging 
+    from src.utils.file_selector import scan_new_files, select_files_interactively # type: ignore
+    from src.utils.raw_data_loader import load_and_clean_raw_ohlc_csv # type: ignore
 except ImportError as e:
     logging.basicConfig(level=logging.INFO)
     logging.critical(f"Failed to import project modules: {e}")
     sys.exit(1)
 
-# Initialize logger for this module
 logger = logging.getLogger(__name__)
 
-
-# --- WORKER-SPECIFIC GLOBAL VARIABLES ---
-# These are initialized in each worker process to avoid serialization overhead
+# --- WORKER-SPECIFIC GLOBALS ---
 worker_df: Optional[pd.DataFrame] = None
 worker_config: Optional[Dict[str, Any]] = None
 worker_spread_cost: Optional[float] = None
@@ -82,8 +74,7 @@ def find_trades_numba(
 ) -> Tuple[List[Tuple], List[Tuple]]:
     """
     Simulates trades with STRICT SL priority.
-    Args:
-        capture_losses: If True, records losing trades. If False, skips them (saves RAM/CPU).
+    Returns: (winning_trades, losing_trades)
     """
     winning_trades = []
     losing_trades = []
@@ -106,24 +97,22 @@ def find_trades_numba(
                 tp_r = tp_ratios[tp_idx]
                 tp_price = entry_price * (1 + tp_r)
                 
-                trade_result = 0 # 0: Pending/TimeOut, 1: Win, -1: Loss
+                trade_result = 0 # 0: Pending, 1: Win, -1: Loss
                 exit_time = 0
                 
                 for j in range(i + 1, search_limit):
                     # STRICT RULE: Check SL First
-                    # If Low touches SL, we are dead. Even if High touches TP in same candle.
                     if low_prices[j] <= sl_price:
                         trade_result = -1
                         exit_time = timestamps[j]
                         break 
                     
-                    # If SL not hit, Check TP (Must cover spread)
+                    # If SL not hit, Check TP
                     if high_prices[j] >= (tp_price + spread_cost):
                         trade_result = 1
                         exit_time = timestamps[j]
                         break
                 
-                # Record Result
                 if trade_result == 1:
                     winning_trades.append((entry_time, 1, entry_price, sl_price, tp_price, sl_r, tp_r, exit_time, 1))
                 elif trade_result == -1 and capture_losses:
@@ -142,13 +131,13 @@ def find_trades_numba(
                 exit_time = 0
                 
                 for j in range(i + 1, search_limit):
-                    # STRICT RULE: Check SL First (High >= SL)
+                    # STRICT RULE: Check SL First
                     if high_prices[j] >= sl_price:
                         trade_result = -1
                         exit_time = timestamps[j]
                         break
                     
-                    # Check TP (Low <= TP - spread)
+                    # Check TP
                     if low_prices[j] <= (tp_price - spread_cost):
                         trade_result = 1
                         exit_time = timestamps[j]
@@ -164,23 +153,18 @@ def find_trades_numba(
 # --- WORKER & HELPER FUNCTIONS ---
 
 def get_pip_size(instrument: str) -> float:
-    """Determines pip size using config map with fallback."""
+    """Determines pip size using config map."""
     pip_map = getattr(c, "PIP_SIZE_MAP", {})
-    
-    # 1. Exact Match
     if instrument in pip_map: return pip_map[instrument]
-    
-    # 2. Substring Match (e.g., 'USDJPY' matches 'JPY')
     for key, val in pip_map.items():
         if key in instrument: return val
-        
     return pip_map.get("DEFAULT", 0.0001)
 
 def get_config_from_filename(filename: str) -> Tuple[Optional[Dict], Optional[float]]:
-    """Parses filename, gets instrument config, and calculates spread cost."""
+    """Parses filename and gets instrument config."""
     match = re.search(r"([A-Z0-9_]+?)(\d+)\.csv$", filename, re.IGNORECASE)
     if not match:
-        logger.warning(f"Could not parse timeframe from '{filename}'. Skipping.")
+        logger.warning(f"Could not parse '{filename}'. Skipping.")
         return None, None
 
     instrument_raw, timeframe_num = match.group(1), match.group(2)
@@ -188,12 +172,10 @@ def get_config_from_filename(filename: str) -> Tuple[Optional[Dict], Optional[fl
     timeframe_key = f"{timeframe_num}m"
 
     if timeframe_key not in c.TIMEFRAME_PRESETS:
-        logger.warning(f"No preset for timeframe '{timeframe_key}' in config.")
+        logger.warning(f"No preset for '{timeframe_key}'.")
         return None, None
 
     config_preset = c.TIMEFRAME_PRESETS[timeframe_key]
-    
-    # Dynamic Pip & Spread Calculation
     pip_size = get_pip_size(instrument)
     spread_in_pips = c.SIMULATION_SPREAD_PIPS.get(instrument, c.SIMULATION_SPREAD_PIPS.get("DEFAULT", 3.0))
     spread_cost = spread_in_pips * pip_size
@@ -230,27 +212,18 @@ def process_chunk_task(task_indices: Tuple[int, int]) -> List[Tuple]:
         worker_max_lookforward, worker_spread_cost, processing_limit, capture_losses
     )
     
-    # --- RESULT AGGREGATION LOGIC ---
     if worker_gen_mode == 'WINS_ONLY':
         return wins
-        
     elif worker_gen_mode == 'ALL':
-        # Return everything. Warning: High Data Volume.
         wins.extend(losses)
         return wins
-        
     elif worker_gen_mode == 'BALANCED':
-        # Sample losses to match wins (1:1)
         if losses:
             num_wins = len(wins)
             if num_wins > 0:
                 count_to_sample = min(len(losses), num_wins)
                 sampled_losses = random.sample(losses, count_to_sample)
                 wins.extend(sampled_losses)
-            else:
-                # Optional: If 0 wins, return empty? Or return sampled losses to learn 'bad' conditions?
-                # For safety, returning empty prevents training on pure noise.
-                pass
         return wins
         
     return wins
@@ -283,7 +256,6 @@ def _create_df_from_results(data: List[Tuple]) -> pd.DataFrame:
     # Optimize numeric columns to float32 to save RAM (Parquet is efficient with this)
     for col in df.select_dtypes(include=['float64']).columns:
         df[col] = df[col].astype('float32')
-        
     return df
 
 # --- MAIN ORCHESTRATOR ---
@@ -309,12 +281,11 @@ def process_file_pipelined(
         logger.warning(f"Output file {os.path.basename(output_file)} exists. Overwriting.")
         os.remove(output_file)
 
-    # --- 3. Parallel Processing Setup ---
-    # Create chunks indices
     tasks = [(i, i + c.BRONZE_INPUT_CHUNK_SIZE + max_lookforward) for i in range(0, len(df), c.BRONZE_INPUT_CHUNK_SIZE)]
     
     accumulator = []
-    total_trades = 0
+    total_wins = 0
+    total_losses = 0
     writer = None
     gen_mode = getattr(c, 'BRONZE_GENERATION_MODE', 'WINS_ONLY')
 
@@ -327,28 +298,35 @@ def process_file_pipelined(
             pbar = tqdm(results_iter, total=len(tasks), desc=f"Scanning {filename} [{gen_mode}]", unit="chunk")
             
             for res in pbar:
-                if res: accumulator.extend(res)
+                if res: 
+                    accumulator.extend(res)
                 
                 # Memory Management: Flush to disk if buffer fills up
                 if len(accumulator) >= c.BRONZE_OUTPUT_CHUNK_SIZE:
                     chunk_df = _create_df_from_results(accumulator)
                     if not chunk_df.empty:
+                        # Count stats before writing
+                        counts = chunk_df['outcome'].value_counts()
+                        total_wins += counts.get('win', 0)
+                        total_losses += counts.get('loss', 0)
+                        
                         table = pa.Table.from_pandas(chunk_df, preserve_index=False)
                         if writer is None:
                             writer = pq.ParquetWriter(output_file, table.schema)
                         writer.write_table(table)
-                        total_trades += len(chunk_df)
                     accumulator.clear()
         
-        # --- 5. Final Flush ---
         if accumulator:
             chunk_df = _create_df_from_results(accumulator)
             if not chunk_df.empty:
+                counts = chunk_df['outcome'].value_counts()
+                total_wins += counts.get('win', 0)
+                total_losses += counts.get('loss', 0)
+                
                 table = pa.Table.from_pandas(chunk_df, preserve_index=False)
                 if writer is None:
                     writer = pq.ParquetWriter(output_file, table.schema)
                 writer.write_table(table)
-                total_trades += len(chunk_df)
 
     except Exception as e:
         logger.error(f"Processing error: {e}")
@@ -357,36 +335,28 @@ def process_file_pipelined(
         if writer:
             writer.close()
 
+    total_trades = total_wins + total_losses
     if total_trades == 0:
         if os.path.exists(output_file):
             os.remove(output_file)
         return "No trades found matching criteria."
     
-    return f"SUCCESS: Generated {total_trades:,} possibilities. Saved to {os.path.basename(output_file)}."
-
+    return f"SUCCESS: Generated {total_trades:,} trades (W: {total_wins:,} | L: {total_losses:,})."
 
 def main() -> None:
-    """Main execution function."""
-    # Setup Logging using Config levels
     setup_logging(p.LOGS_DIR, c.CONSOLE_LOG_LEVEL, c.FILE_LOG_LEVEL, "bronze_layer")
     p.ensure_directories()
 
     start_time = time.time()
-    logger.info("--- Bronze Layer: The Possibility Engine (V19 - Balanced) ---")
-    # JIT Warmup (Compiles the Numba function with dummy data so it's ready for the real work)
-    logger.info("Warming up simulation engine...")
-    find_trades_numba(np.random.rand(10), 
-                      np.random.rand(10), 
-                      np.random.rand(10), 
-                      np.arange(10, dtype=np.int64), np.array([0.01]), 
-                      np.array([0.02]), 
-                      1, 
-                      0.0001, 
-                      5, 
-                      True)
-    logger.info("Engine ready.")
+    logger.info("--- Bronze Layer: The Possibility Engine (V20.1 - Stats) ---")
+    
+    gen_mode = getattr(c, 'BRONZE_GENERATION_MODE', 'WINS_ONLY')
+    logger.info(f"Generation Mode: {gen_mode}")
 
-    # File Selection Logic
+    # Warmup
+    find_trades_numba(np.random.rand(10), np.random.rand(10), np.random.rand(10), 
+                      np.arange(10, dtype=np.int64), np.array([0.01]), np.array([0.02]), 1, 0.0001, 5, True)
+
     files_to_process = []
     target_arg = sys.argv[1] if len(sys.argv) > 1 else None
     

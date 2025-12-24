@@ -37,19 +37,14 @@ except ImportError:
     sys.exit(1)
 
 # --- CONFIGURATION IMPORT ---
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.abspath(os.path.join(current_dir, "../../../"))
-config_dir = os.path.join(project_root, "config")
-utils_dir = os.path.join(project_root, "src", "utils")
-
-sys.path.append(config_dir)
-sys.path.append(utils_dir)
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+sys.path.append(project_root)
 
 try:
-    import config as c
-    import paths as p # type: ignore
-    from logger_setup import setup_logging # type: ignore
-    from file_selector import scan_new_files, select_files_interactively # type: ignore
+    import config.config as c
+    from src.utils import paths as p
+    from src.utils.logger import setup_logging 
+    from src.utils.file_selector import scan_new_files, select_files_interactively # type: ignore
 except ImportError as e:
     logging.basicConfig(level=logging.INFO)
     logging.critical(f"Failed to import project modules: {e}")
@@ -229,10 +224,10 @@ def run_preprocessor_for_instrument(instrument_name: str) -> None:
     """Orchestrates the entire Map-Reduce process for a single instrument."""
     
     # Define Paths using 'paths.py' where possible, or constructing them relative
-    chunked_outcomes_dir = os.path.join(p.SILVER_DATA_CHUNKED_OUTCOMES_DIR, instrument_name)
-    combinations_path = os.path.join(p.PLATINUM_DATA_COMBINATIONS_DIR, f"{instrument_name}.parquet")
+    chunked_outcomes_dir = os.path.join(p.SILVER_CHUNKED_DIR, instrument_name)
+    combinations_path = os.path.join(p.PLATINUM_COMBINATIONS, f"{instrument_name}.parquet")
     temp_targets_dir = os.path.join(p.PLATINUM_DATA_TEMP_TARGETS_DIR, instrument_name)
-    final_targets_dir = os.path.join(p.PLATINUM_DATA_TARGETS_DIR, instrument_name)
+    final_targets_dir = os.path.join(p.PLATINUM_TARGETS, instrument_name)
     
     # Cleanup / Prep
     if os.path.exists(combinations_path):
@@ -359,6 +354,7 @@ def run_preprocessor_for_instrument(instrument_name: str) -> None:
 def main() -> None:
     """Main execution function."""
     setup_logging(p.LOGS_DIR, c.CONSOLE_LOG_LEVEL, c.FILE_LOG_LEVEL, "platinum_preprocessor")
+    p.ensure_directories()
     
     start_time = time.time()
     logger.info("--- Platinum Pre-Processor: Unified Blueprint Discovery (V6.0) ---")
@@ -369,7 +365,7 @@ def main() -> None:
     
     if target_file_arg:
         # User passed a specific file
-        target_path = os.path.join(p.SILVER_DATA_CHUNKED_OUTCOMES_DIR, target_file_arg)
+        target_path = os.path.join(p.SILVER_CHUNKED_DIR, target_file_arg)
         if os.path.exists(target_path):
             files_to_process = [target_file_arg]
             logger.info(f"Targeted Mode: Processing '{target_file_arg}'")
@@ -377,7 +373,7 @@ def main() -> None:
             logger.error(f"Target file not found: {target_path}")
     else:
         # Standard Mode: Scan for new files
-        new_files = scan_new_files(p.SILVER_DATA_CHUNKED_OUTCOMES_DIR, p.PLATINUM_DATA_COMBINATIONS_DIR)
+        new_files = scan_new_files(p.SILVER_CHUNKED_DIR, p.PLATINUM_COMBINATIONS)
         files_to_process = select_files_interactively(new_files)
 
     if not files_to_process:

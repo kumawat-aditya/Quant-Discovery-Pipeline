@@ -10,13 +10,12 @@ import pandas as pd
 current_dir = os.path.dirname(os.path.abspath(__file__))
 # Assuming structure: project_root/src/data_processing/bronze/bronze_data_generator.py
 project_root = os.path.abspath(os.path.join(current_dir, "../../"))
-config_dir = os.path.join(project_root, "config")
-sys.path.append(config_dir)
+sys.path.append(project_root)
 
 try:
-    import config as c
-    import paths as p # type: ignore
-    from logger_setup import setup_logging # type: ignore
+    import config.config as c
+    import src.utils.paths as p # type: ignore
+    from src.utils.logger import setup_logging # type: ignore
 except ImportError as e:
     # Fallback logging if setup hasn't run
     logging.basicConfig(level=logging.INFO)
