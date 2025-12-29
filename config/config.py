@@ -173,17 +173,22 @@ PLATINUM_DENSITY_LIFT_THRESHOLD: float = 1.5
 # The number of blueprints to process in a single batch by each worker process.
 PLATINUM_DISCOVERY_BATCH_SIZE: int = 20
 # --- DIAMOND LAYER (Model Trainer) ---
+# Set to True if you have 64GB+ RAM or a high-end Server.
+# It loads all data at once for faster training.
+# Set to False to use Iterative Loading (slower, but works on 8GB RAM).
+DIAMOND_LOAD_FULL_DATASET_IN_MEMORY: bool = False
+
 # Parameters for the Unified XGBoost Model
 DIAMOND_XGB_PARAMS: dict = {
     'objective': 'binary:logistic',
     'eval_metric': 'logloss',
-    'eta': 0.05,             # Learning Rate (Lower is more robust)
-    'max_depth': 8,          # Depth (Higher = more complex patterns)
-    'subsample': 0.8,        # Stochastic row sampling to prevent overfitting
+    'eta': 0.05,             # Learning Rate
+    'max_depth': 8,          # Depth
+    'subsample': 0.8,        # Stochastic row sampling
     'colsample_bytree': 0.8, # Feature sampling
-    'tree_method': 'hist',   # Fast histogram training
+    'tree_method': 'hist',   # Use 'hist' for CPU. Change to 'gpu_hist' or device='cuda' for GPU.
     'nthread': MAX_CPU_USAGE
-    # 'device': 'cuda'       # Uncomment if GPU is available
+    # 'device': 'cuda'       # Uncomment this line if using a GPU Server
 }
 
 DIAMOND_BOOST_ROUNDS: int = 1000
