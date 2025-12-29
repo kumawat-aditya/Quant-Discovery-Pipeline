@@ -10,7 +10,7 @@ make install
 
 cd ..
 
-pip install TA-Lib
+pip install TA-Lib ta xgboost
 
 git clone https://github.com/Adikumaw/trading_strategy_finder.git
 
