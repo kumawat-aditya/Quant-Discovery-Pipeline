@@ -24,16 +24,18 @@ import xgboost as xgb
 from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_auc_score
 from tqdm import tqdm
 
-# Adjust path to find src
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../")))
+# --- CONFIGURATION IMPORT ---
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../"))
+sys.path.append(project_root)
 
 try:
-    import config as c
+    import config.config as c
     from src.utils import paths as p
     from src.utils.logger import setup_logging 
-    from src.utils.file_selector import select_files_interactively
+    from src.utils.file_selector import scan_new_files, select_files_interactively # type: ignore
 except ImportError as e:
-    print(f"CRITICAL: Import failed: {e}")
+    logging.basicConfig(level=logging.INFO)
+    logging.critical(f"Failed to import project modules: {e}")
     sys.exit(1)
 
 logger = logging.getLogger(__name__)
@@ -230,6 +232,7 @@ def main():
     setup_logging(p.LOGS_DIR, c.CONSOLE_LOG_LEVEL, c.FILE_LOG_LEVEL, "diamond_trainer")
     p.ensure_directories()
     
+    start_time = time.time()
     logger.info("--- Diamond Layer: Strategy Trainer (V2.2 - Hybrid) ---")
     
     mode = "FULL MEMORY (SERVER)" if c.DIAMOND_LOAD_FULL_DATASET_IN_MEMORY else "ITERATIVE (LOW RAM)"
@@ -251,6 +254,9 @@ def main():
     for instr in selected:
         logger.info(f"--- Starting Training for {instr} ---")
         train_xgb_model(instr)
+
+    end_time = time.time()
+    logger.info(f"Bronze layer generation complete. Total Runtime: {end_time - start_time:.2f}s")
     
 if __name__ == "__main__":
     main()
