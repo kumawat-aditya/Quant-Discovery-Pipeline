@@ -1,63 +1,23 @@
-time  : 2021-10-06 03:45:00
-RSI_14  : -0.502156
-MACD_hist_12_26_9   : -0.891497
-ATR_14  : 1.364443
-ADX_14  : 1.587093
-MOM_10  : -1.200515
-CCI_20  : 0.310183
-CDL2CROWS  : 0.0
-CDL3BLACKCROWS  : 0.0
-CDL3INSIDE  : 0.0
-CDL3LINESTRIKE  : 0.0
-.....other talib candles..
-hour  : 1.482758
-weekday  : 8.944954
-bullish_ratio_last_3  : 2.012461
-avg_body_last_3  : -1.554627
-avg_range_last_3  : 0.105332
-bullish_ratio_last_5  : 1.314145
-avg_body_last_5  : -1.242059
-avg_range_last_5  : 0.24535
-bullish_ratio_last_10  : 0.293877
-avg_body_last_10  : 0.036715
-avg_range_last_10  : 1.454739
-bullish_ratio_last_20  : 2.351015
-avg_body_last_20  : 1.160003
-avg_range_last_20  : 1.845526
-bullish_ratio_last_50  : 1.94936
-avg_body_last_50  : 1.305627
-avg_range_last_50  : 1.78921
-open_rel_close  : -0.534578
-high_rel_close  : -0.264848
-low_rel_close  : -0.006058
-SMA_20_rel_close  : 0.540822
-SMA_50_rel_close  : 0.884638
-SMA_100_rel_close  : 1.246859
-SMA_200_rel_close  : 1.282361
-EMA_8_rel_close  : -0.184572
-EMA_13_rel_close  : 0.124632
-EMA_21_rel_close  : 0.380449
-EMA_50_rel_close  : 0.830556
-BB_upper_20_rel_close  : 1.072314
-BB_lower_20_rel_close  : -0.622314
-ATR_level_up_1p0x_14_rel_close  : 1.365065
-ATR_level_down_1p0x_14_rel_close  : -1.365525
-ATR_level_up_2p0x_14_rel_close  :  1.365161
-ATR_level_down_2p0x_14_rel_close  : -1.365374
-support_rel_close  : 1.323411
-resistance_rel_close  : 1.323411
-high_rel_open  : 0.803117
-low_rel_open  : 0.639662
-close_rel_SMA_200  :  -1.282185
-BB_upper_20_rel_SMA_20  : 1.674514
-BB_lower_20_rel_SMA_20  : -1.674506
-session_London  : 0.0
-session_London_NY_Overlap  : 0.0
-session_New_York  : 0.0
-session_Sydney  : 0.0
-session_Tokyo  : 0.0
-session_Tokyo_London_Overlap  : 1.0 
-trend_regime_14_range  : 0.0
-trend_regime_14_trend  : 1.0
-vol_regime_14_high_vol  : 1.0
-vol_regime_14_low_vol : 0.0
+wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
+
+tar -xzvf ta-lib-0.4.0-src.tar.gz
+
+cd ta-lib
+
+./configure --prefix=/usr
+make
+make install
+
+cd ..
+
+pip install TA-Lib
+
+git clone https://github.com/Adikumaw/trading_strategy_finder.git
+
+cd trading_strategy_finder
+
+python ./src/layers/bronze/generator.py
+python ./src/layers/silver/generator.py
+python ./src/layers/gold/generator.py
+python ./src/layers/platinum/dataset_builder.py
+python ./src/layers/diamond/trainer.py
