@@ -1,4 +1,4 @@
-# silver_data_generator.py (V6.0 - Fully Dynamic Config)
+# silver_data_generator.py (V7.0 - Advanced Math & Structural Logic)
 
 """
 Silver Layer: The Enrichment Engine
@@ -8,8 +8,10 @@ pipeline. It transforms the raw, high-volume trade simulations from the Bronze
 Layer Parquet files into an intelligent, context-rich dataset ready for
 machine learning.
 
-It is now fully driven by `config.py`, allowing for dynamic adjustment of
-indicator periods, regime thresholds, and market session definitions.
+Updates in V7.0:
+- Structural S/R: Implements ZigZag (Swing) Pivots based on ATR volatility.
+- Dynamic Normalization: Uses ATR-based distances instead of static BPS.
+- Vector Placement: Uses Linear Rescaling for SL/TP positioning.
 """
 
 import gc
@@ -26,6 +28,7 @@ from typing import Dict, List, Tuple
 import numba
 import numpy as np
 import pandas as pd
+from numba import njit
 from tqdm import tqdm
 
 # Check for Parquet support
@@ -71,22 +74,26 @@ worker_time_to_idx_lookup: pd.Series
 worker_col_to_idx: Dict[str, int]
 worker_levels_for_positioning: List[str]
 worker_chunked_outcomes_dir: str
+worker_atr_values_np: np.ndarray # New global for ATR normalization
 
 
 def init_worker(
     feature_values_np: np.ndarray, time_to_idx_lookup: pd.Series, col_to_idx: Dict[str, int],
-    levels_for_positioning: List[str], chunked_outcomes_dir: str
+    levels_for_positioning: List[str], chunked_outcomes_dir: str, atr_values_np: np.ndarray
 ) -> None:
     """Initializer for each worker process in the multiprocessing Pool."""
     global worker_feature_values_np, worker_time_to_idx_lookup, worker_col_to_idx
-    global worker_levels_for_positioning, worker_chunked_outcomes_dir
-    worker_feature_values_np, worker_time_to_idx_lookup, worker_col_to_idx, \
-    worker_levels_for_positioning, worker_chunked_outcomes_dir = \
-        feature_values_np, time_to_idx_lookup, col_to_idx, \
-        levels_for_positioning, chunked_outcomes_dir
+    global worker_levels_for_positioning, worker_chunked_outcomes_dir, worker_atr_values_np
+    
+    worker_feature_values_np = feature_values_np
+    worker_time_to_idx_lookup = time_to_idx_lookup
+    worker_col_to_idx = col_to_idx
+    worker_levels_for_positioning = levels_for_positioning
+    worker_chunked_outcomes_dir = chunked_outcomes_dir
+    worker_atr_values_np = atr_values_np
 
 
-# --- UTILITY & FEATURE FUNCTIONS ---
+# --- ADVANCED MATH: STRUCTURAL ANALYSIS ---
 
 def downcast_dtypes(df: pd.DataFrame) -> pd.DataFrame:
     """Optimizes DataFrame memory usage by downcasting numeric types."""
@@ -96,25 +103,82 @@ def downcast_dtypes(df: pd.DataFrame) -> pd.DataFrame:
         df[col] = df[col].astype('int32')
     return df
 
-@numba.njit
-def _calculate_s_r_numba(lows: np.ndarray, highs: np.ndarray, window: int) -> Tuple[np.ndarray, np.ndarray]:
-    """Identifies fractal support and resistance points using Numba."""
-    n = len(lows)
-    support, resistance = np.full(n, np.nan, dtype=np.float32), np.full(n, np.nan, dtype=np.float32)
-    for i in range(window, n - window):
-        ws = slice(i - window, i + window + 1)
-        if lows[i] == np.min(lows[ws]): support[i] = lows[i]
-        if highs[i] == np.max( highs[ws]): resistance[i] = highs[i]
+@njit
+def calculate_zigzag_levels_numba(highs: np.ndarray, lows: np.ndarray, atrs: np.ndarray, multiplier: float) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Calculates Structural Support and Resistance using a ZigZag (Swing) algorithm.
+    Logic:
+    - We track the current trend direction.
+    - If price reverses by (ATR * multiplier), a Swing Point is confirmed.
+    - We forward-fill the last confirmed Swing High as 'Resistance' and Swing Low as 'Support'.
+    """
+    n = len(highs)
+    resistance = np.full(n, np.nan, dtype=np.float32)
+    support = np.full(n, np.nan, dtype=np.float32)
+    
+    # ZigZag State
+    trend = 1 # 1: Up, -1: Down
+    last_high = highs[0]
+    last_low = lows[0]
+    last_high_idx = 0
+    last_low_idx = 0
+    
+    # Initialize output with first bar
+    curr_res = last_high
+    curr_sup = last_low
+
+    for i in range(1, n):
+        threshold = atrs[i] * multiplier
+        
+        if trend == 1: # Uptrend
+            if highs[i] > last_high:
+                last_high = highs[i]
+                last_high_idx = i
+            elif lows[i] < last_high - threshold:
+                # Reversal to Downtrend: The previous high is now a confirmed Resistance Pivot
+                trend = -1
+                curr_res = last_high 
+                last_low = lows[i]
+                last_low_idx = i
+        
+        else: # Downtrend
+            if lows[i] < last_low:
+                last_low = lows[i]
+                last_low_idx = i
+            elif highs[i] > last_low + threshold:
+                # Reversal to Uptrend: The previous low is now a confirmed Support Pivot
+                trend = 1
+                curr_sup = last_low
+                last_high = highs[i]
+                last_high_idx = i
+        
+        resistance[i] = curr_res
+        support[i] = curr_sup
+        
     return support, resistance
 
-def add_support_resistance(df: pd.DataFrame) -> pd.DataFrame:
-    """Calculates and adds forward-filled S/R levels to the DataFrame."""
-    lows, highs = df["low"].values.astype(np.float32), df["high"].values.astype(np.float32)
-    # Uses config for pivot window
-    support_pts, resistance_pts = _calculate_s_r_numba(lows, highs, c.PIVOT_WINDOW)
-    df["support"] = pd.Series(support_pts, index=df.index).ffill()
-    df["resistance"] = pd.Series(resistance_pts, index=df.index).ffill()
+def add_structural_support_resistance(df: pd.DataFrame, atr_series: pd.Series) -> pd.DataFrame:
+    """Calculates and adds ZigZag-based S/R levels to the DataFrame."""
+    highs = df["high"].values.astype(np.float32)
+    lows = df["low"].values.astype(np.float32)
+    atrs = atr_series.values.astype(np.float32)
+    
+    # Use a dynamic threshold multiplier (e.g., 2.0 or 3.0 ATRs to confirm a swing)
+    # Falling back to BBANDS_STD_DEV if not specifically defined for Swings
+    swing_mult = getattr(c, 'SWING_ATR_MULTIPLIER', 2.0) 
+    
+    support_pts, resistance_pts = calculate_zigzag_levels_numba(highs, lows, atrs, swing_mult)
+    
+    df["support"] = support_pts
+    df["resistance"] = resistance_pts
+    
+    # Handle initial NaNs (backward fill)
+    df["support"] = df["support"].bfill()
+    df["resistance"] = df["resistance"].bfill()
+    
     return df
+
+# --- STANDARD FEATURES ---
 
 def map_market_sessions(hour_series: pd.Series) -> pd.Series:
     """
@@ -175,8 +239,7 @@ def _add_standard_indicators(df: pd.DataFrame) -> pd.DataFrame:
     for p in c.ATR_PERIODS:
         atr_series = indicator_df[f"ATR_{p}"]
         for mult in c.ATR_BAND_MULTIPLIERS:
-            # Replaced "1x" hardcoding with dynamic multiplier naming
-            mult_str = str(mult).replace('.', 'p') # 1.5 -> 1p5
+            mult_str = str(mult).replace('.', 'p')
             indicator_df[f"ATR_level_up_{mult_str}x_{p}"] = df["close"] + (atr_series * mult)
             indicator_df[f"ATR_level_down_{mult_str}x_{p}"] = df["close"] - (atr_series * mult)
             
@@ -227,16 +290,18 @@ def _add_time_and_pa_features(df: pd.DataFrame, indicator_df: pd.DataFrame) -> p
     return pa_df
 
 def add_all_market_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Orchestrates the calculation of a comprehensive suite of market features."""
-    logger.info("  - Calculating standard indicators...")
+    """Orchestrates feature calculation."""
+    logger.info("  - Calculating indicators...")
     indicator_df = _add_standard_indicators(df)
     
-    logger.info("  - Calculating candlestick patterns...")
+    # REORDER: S/R now depends on ATR, so indicators must be done first
+    logger.info("  - Calculating structural S/R (ZigZag)...")
+    atr_col = f"ATR_{c.ATR_PERIODS[0]}"
+    df_with_sr = add_structural_support_resistance(df.copy(), indicator_df[atr_col])
+    
+    logger.info("  - Calculating patterns & context...")
     patterns_df = _add_candlestick_patterns(df)
-    
-    logger.info("  - Calculating support and resistance...")
-    df_with_sr = add_support_resistance(df.copy())
-    
+
     logger.info("  - Calculating time-based and price-action features...")
     pa_df = _add_time_and_pa_features(df, indicator_df)
     
@@ -244,20 +309,31 @@ def add_all_market_features(df: pd.DataFrame) -> pd.DataFrame:
 
 def create_feature_lookup_structures(
     features_df: pd.DataFrame, level_cols: List[str]
-) -> Tuple[np.ndarray, pd.Series, Dict[str, int]]:
+) -> Tuple[np.ndarray, pd.Series, Dict[str, int], np.ndarray]:
     """Pre-computes data into highly efficient lookup structures."""
     features_df = features_df.sort_values('time').reset_index(drop=True)
     col_to_idx = {col: i for i, col in enumerate(level_cols)}
     feature_values_np = features_df[level_cols].to_numpy(dtype=np.float32)
     time_to_idx_lookup = pd.Series(features_df.index, index=features_df['time'])
-    return feature_values_np, time_to_idx_lookup, col_to_idx
+    
+    # Extract ATR for Volatility Normalization
+    atr_col = f"ATR_{c.ATR_PERIODS[0]}"
+    if atr_col in features_df.columns:
+        atr_values_np = features_df[atr_col].to_numpy(dtype=np.float32)
+        # Prevent division by zero
+        atr_values_np[atr_values_np == 0] = 1e-5 
+    else:
+        atr_values_np = np.ones(len(features_df), dtype=np.float32)
+        
+    return feature_values_np, time_to_idx_lookup, col_to_idx, atr_values_np
+
+# --- ADVANCED ENRICHMENT LOGIC ---
 
 def add_positioning_features(
     bronze_chunk: pd.DataFrame, feature_values_np: np.ndarray, time_to_idx_lookup: pd.Series,
     col_to_idx: Dict[str, int], levels_for_positioning: List[str]
 ) -> pd.DataFrame:
-    """Enriches a chunk of Bronze trade data with relational positioning features."""
-    # Find indices in the feature array corresponding to trade entry times
+    """Enriches trades with Volatility-Normalized and Vector-Scaled features."""
     indices = time_to_idx_lookup.reindex(bronze_chunk['entry_time']).values
     valid_mask = ~np.isnan(indices)
     if not valid_mask.any(): return pd.DataFrame()
@@ -265,42 +341,48 @@ def add_positioning_features(
     bronze_chunk = bronze_chunk.loc[valid_mask].copy()
     indices = indices[valid_mask].astype(int)
     
-    # Extract feature values for these specific times
-    features_for_chunk_np = feature_values_np[indices]
+    features_for_chunk = feature_values_np[indices]
+    atr_for_chunk = worker_atr_values_np[indices]
     
+    entry_prices = bronze_chunk['entry_price'].values
     sl_prices = bronze_chunk['sl_price'].values
     tp_prices = bronze_chunk['tp_price'].values
-    candle_close_price = features_for_chunk_np[:, col_to_idx['close']]
 
+    # Helper for safe division
     def safe_divide(num, den):
         with np.errstate(divide='ignore', invalid='ignore'):
             result = np.divide(num, den)
-        result[den == 0] = np.nan
+        result[den == 0] = 0.0 # Standardize 'on-top' to 0 distance
         return result
 
-    # Calculate distance features for every level defined
     for level_name in levels_for_positioning:
         if level_name not in col_to_idx: continue
-            
-        level_price = features_for_chunk_np[:, col_to_idx[level_name]]
+        level_prices = features_for_chunk[:, col_to_idx[level_name]]
         
-        # 1. Distance in Basis Points
-        bronze_chunk[f'sl_dist_to_{level_name}_bps'] = safe_divide(sl_prices - level_price, candle_close_price) * 10000
-        bronze_chunk[f'tp_dist_to_{level_name}_bps'] = safe_divide(tp_prices - level_price, candle_close_price) * 10000
+        # --- 1. Volatility Normalized Distance (ATR Units) ---
+        # "How many ATRs away is the SL/TP?"
+        # Much better than BPS for ML across different years.
+        bronze_chunk[f'sl_dist_to_{level_name}_atr'] = safe_divide(sl_prices - level_prices, atr_for_chunk)
+        bronze_chunk[f'tp_dist_to_{level_name}_atr'] = safe_divide(tp_prices - level_prices, atr_for_chunk)
         
-        # 2. Relational Placement (Pct)
-        # How far is the SL from entry, relative to how far the level is from entry?
-        total_dist_to_level = level_price - candle_close_price
-        sl_dist_from_entry = sl_prices - candle_close_price
-        tp_dist_from_entry = tp_prices - candle_close_price
+        # --- 2. Linear Vector Scaling ---
+        # "Where is SL relative to the vector [Entry -> Level]?"
+        # 0 = At Entry, 1 = At Level, 1.5 = Beyond Level, -0.5 = Opposite side
+        denom = level_prices - entry_prices
         
-        bronze_chunk[f'sl_place_pct_to_{level_name}'] = safe_divide(sl_dist_from_entry, total_dist_to_level)
-        bronze_chunk[f'tp_place_pct_to_{level_name}'] = safe_divide(tp_dist_from_entry, total_dist_to_level)
+        # If Level == Entry, we can't define a vector. Use 0.
+        denom = np.where(np.abs(denom) < 1e-9, np.nan, denom)
+        
+        sl_scaled = (sl_prices - entry_prices) / denom
+        tp_scaled = (tp_prices - entry_prices) / denom
+        
+        bronze_chunk[f'sl_place_scale_{level_name}'] = np.nan_to_num(sl_scaled, nan=0.0)
+        bronze_chunk[f'tp_place_scale_{level_name}'] = np.nan_to_num(tp_scaled, nan=0.0)
         
     return bronze_chunk
 
 def queue_worker(task_queue) -> int:
-    """The 'Consumer' worker function, which runs in a continuous loop."""
+    """The 'Consumer' worker function."""
     total = 0
     while True:
         try:
@@ -308,14 +390,19 @@ def queue_worker(task_queue) -> int:
             if task is None: break
             chunk_df, chunk_num = task
             if chunk_df.empty: continue
-            enriched = add_positioning_features(chunk_df, worker_feature_values_np, worker_time_to_idx_lookup, worker_col_to_idx, worker_levels_for_positioning)
+            
+            enriched = add_positioning_features(
+                chunk_df, worker_feature_values_np, worker_time_to_idx_lookup, 
+                worker_col_to_idx, worker_levels_for_positioning
+            )
+            
             if not enriched.empty:
                 enriched = downcast_dtypes(enriched)
                 path = os.path.join(worker_chunked_outcomes_dir, f"chunk_{chunk_num}.parquet")
                 enriched.to_parquet(path, index=False)
                 total += len(enriched)
         except Exception:
-            logger.error(f"An error occurred in a worker process.", exc_info=True)
+            logger.error("Worker Error", exc_info=True)
     return total
 
 def _get_level_columns(all_columns: List[str]) -> Tuple[List[str], List[str]]:
@@ -329,6 +416,7 @@ def _get_level_columns(all_columns: List[str]) -> Tuple[List[str], List[str]]:
         if any(p in col for p in patterns): level_cols.add(col)
         
     cols_for_numpy = [c for c in level_cols if c != 'time']
+    # Level columns are subsets of numpy columns that act as 'Levels'
     levels_for_pos = [c for c in cols_for_numpy if c not in ['open', 'high', 'low', 'close']]
     return cols_for_numpy, levels_for_pos
 
@@ -345,13 +433,16 @@ def create_silver_data(
     logger.info("STEP 1: Creating Silver Features dataset...")
     try:
         raw_df = load_and_clean_raw_ohlc_csv(raw_path)
+        # Remove the 'volume' column if it exists
+        if 'volume' in raw_df.columns:
+            raw_df.drop(columns=['volume'], inplace=True)
     except Exception as e:
-        logger.error(f"ERROR: Failed to load '{instrument_name}': {e}")
+        logger.error(f"Failed to load '{instrument_name}': {e}")
         return
 
     # Check for warmup period
     if len(raw_df) < c.SILVER_INDICATOR_WARMUP_PERIOD + 100:
-        logger.error(f"Not enough data for indicator warmup ({len(raw_df)} rows). Skipping.")
+        logger.error("Not enough data for warmup.")
         return
         
     features_df = add_all_market_features(raw_df)
@@ -364,7 +455,7 @@ def create_silver_data(
     
     os.makedirs(os.path.dirname(features_path), exist_ok=True)
     features_df.to_parquet(features_path, index=False)
-    logger.info(f"SUCCESS: Silver Features saved to: {os.path.basename(features_path)}")
+    logger.info(f"SUCCESS: Features saved to: {os.path.basename(features_path)}")
     
     if features_only:
         logger.info("Features-only mode complete.")
@@ -372,13 +463,16 @@ def create_silver_data(
 
     # --- Stage 2 & 3: Trade Enrichment ---
     logger.info("STEP 2: Preparing for PARALLEL chunk enrichment...")
-    if os.path.exists(chunked_outcomes_dir): shutil.rmtree(chunked_outcomes_dir)
+    if os.path.exists(chunked_outcomes_dir): 
+        shutil.rmtree(chunked_outcomes_dir)
     os.makedirs(chunked_outcomes_dir)
     
     logger.info("  - Creating feature lookup structures...")
     cols_for_numpy, levels_for_pos = _get_level_columns(features_df.columns)
     lookup_df = features_df[['time'] + cols_for_numpy]
-    feature_values_np, time_to_idx, col_to_idx = create_feature_lookup_structures(lookup_df, cols_for_numpy)
+    
+    # NEW: Now returns ATR values too
+    feature_values_np, time_to_idx, col_to_idx, atr_values_np = create_feature_lookup_structures(lookup_df, cols_for_numpy)
     del features_df, lookup_df; gc.collect()
 
     logger.info("STEP 3: Enriching Bronze data...")
@@ -386,7 +480,7 @@ def create_silver_data(
         pq_file = pq.ParquetFile(bronze_path)
         num_rows = pq_file.metadata.num_rows
     except Exception as e:
-        logger.error(f"Could not read Bronze Parquet file at {bronze_path}: {e}")
+        logger.error(f"Could not read Bronze Parquet: {e}")
         return
         
     if num_rows <= 0:
@@ -396,12 +490,12 @@ def create_silver_data(
     logger.info(f"Found {num_rows:,} trades. Processing in batches...")
     manager = Manager()
     task_queue = manager.Queue(maxsize=c.MAX_CPU_USAGE * 2)
-    pool_init_args = (feature_values_np, time_to_idx, col_to_idx, levels_for_pos, chunked_outcomes_dir)
+    
+    # NEW: Init args now includes atr_values_np
+    pool_init_args = (feature_values_np, time_to_idx, col_to_idx, levels_for_pos, chunked_outcomes_dir, atr_values_np)
 
     with Pool(processes=c.MAX_CPU_USAGE, initializer=init_worker, initargs=pool_init_args) as pool:
         worker_results = [pool.apply_async(queue_worker, (task_queue,)) for _ in range(c.MAX_CPU_USAGE)]
-        
-        # Read Bronze Parquet file in batches to save RAM
         iterator = pq_file.iter_batches(batch_size=c.SILVER_PARQUET_BATCH_SIZE)
         
         for i, batch in enumerate(tqdm(iterator, desc="Feeding Batches", unit="batch"), 1):
@@ -410,16 +504,13 @@ def create_silver_data(
         for _ in range(c.MAX_CPU_USAGE): task_queue.put(None)
         total_trades_processed = sum(res.get() for res in worker_results)
 
-    logger.info(f"SUCCESS: Enriched and chunked {total_trades_processed:,} trades.")
-    logger.info(f"Output saved to: {chunked_outcomes_dir}")
+    logger.info(f"SUCCESS: Enriched {total_trades_processed:,} trades.")
 
 def main() -> None:
-    """Main execution function."""
     setup_logging(p.LOGS_DIR, c.CONSOLE_LOG_LEVEL, c.FILE_LOG_LEVEL, "silver_layer")
     p.ensure_directories()
-    
     start_time = time.time()
-    logger.info("--- Silver Layer: The Enrichment Engine (V6.0 - Dynamic Config) ---")
+    logger.info("--- Silver Layer: The Enrichment Engine (V7.0 - Advanced Math) ---")
 
     features_only_mode = '--features-only' in sys.argv
     target_file_arg = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith('--') else None
@@ -427,7 +518,7 @@ def main() -> None:
     if features_only_mode:
         logger.info("Running in FEATURES-ONLY mode.")
         if not target_file_arg:
-            logger.error("--features-only mode requires a target .csv file argument.")
+            logger.error("--features-only requires filename.")
             return
         
         raw_path = os.path.join(p.RAW_DATA_DIR, f"{target_file_arg}.csv")
@@ -436,15 +527,10 @@ def main() -> None:
         if not os.path.exists(raw_path):
             logger.error(f"Raw data file not found: {raw_path}")
             return
-            
-        paths = {
-            "raw_path": raw_path,
-            "features_path": features_path,
-            "features_only": True
-        }
-        create_silver_data(**paths)
         
-    else: # --- Normal (Full) Mode ---
+        create_silver_data(raw_path, features_path, features_only=True)
+            
+    else:  # --- Normal (Full) Mode ---
         if target_file_arg:
             target_path = os.path.join(p.BRONZE_DATA_DIR, f"{target_file_arg}.parquet")
             if os.path.exists(target_path):
@@ -461,31 +547,27 @@ def main() -> None:
         if not files_to_process:
             logger.info("No files selected. Exiting.")
             return
-        else:
-            logger.info(f"Processing {len(files_to_process)} file(s)...")
-            for filename in files_to_process:
-                name = filename.replace('.parquet', '')
-                raw_filename = filename.replace('.parquet', '.csv')
-                paths = {
-                    "bronze_path": os.path.join(p.BRONZE_DATA_DIR, filename),
-                    "raw_path": os.path.join(p.RAW_DATA_DIR, raw_filename),
-                    "features_path": os.path.join(p.SILVER_FEATURES_DIR, filename),
-                    "chunked_outcomes_dir": os.path.join(p.SILVER_CHUNKED_DIR, name),
-                    "features_only": False
-                }
-                
-                if not os.path.exists(paths["raw_path"]):
-                    logger.warning(f"SKIPPING {filename}: Corresponding raw_data file ('{raw_filename}') is missing.")
-                    continue
-                    
-                try:
-                    create_silver_data(**paths)
-                except Exception:
-                    logger.critical(f"A fatal error occurred while processing {filename}.", exc_info=True)
+
+        logger.info(f"Processing {len(files_to_process)} file(s)...")
+        for filename in files_to_process:
+            name = filename.replace('.parquet', '')
+            raw_filename = filename.replace('.parquet', '.csv')
+            paths = {
+                "bronze_path": os.path.join(p.BRONZE_DATA_DIR, filename),
+                "raw_path": os.path.join(p.RAW_DATA_DIR, raw_filename),
+                "features_path": os.path.join(p.SILVER_FEATURES_DIR, filename),
+                "chunked_outcomes_dir": os.path.join(p.SILVER_CHUNKED_DIR, name),
+                "features_only": False
+            }
+            
+            if os.path.exists(paths["raw_path"]):
+                create_silver_data(**paths)
+            else:
+                logger.warning(f"SKIPPING {filename}: Corresponding raw_data file ('{raw_filename}') is missing.")
+                continue
 
     end_time = time.time()
     logger.info(f"Silver Layer generation finished. Total Runtime: {end_time - start_time:.2f}s")
-
 
 if __name__ == "__main__":
     main()

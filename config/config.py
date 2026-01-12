@@ -79,6 +79,9 @@ ATR_MA_WINDOW: int = 50
 # This allows the ML to find relationships with dynamic volatility bands.
 ATR_BAND_MULTIPLIERS: list[float] = [1.0, 2.0]
 
+# Use a dynamic threshold multiplier (e.g., 2.0 or 3.0 ATRs to confirm a swing)
+SWING_ATR_MULTIPLIER: 2.0
+
 # Market Sessions Configuration (UTC)
 # Bins define the hour cutoffs. Labels define the session names.
 # Bins: [-1, 0, 8, 9, 13, 17, 22, 23] covers 0-23 hours.
