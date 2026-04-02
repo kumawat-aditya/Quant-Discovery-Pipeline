@@ -148,20 +148,20 @@ def main():
     setup_logging(p.LOGS_DIR, c.CONSOLE_LOG_LEVEL, c.FILE_LOG_LEVEL, "platinum_builder")
     p.ensure_directories()
     logger.info("--- Platinum Dataset Builder (V1.0 - Unified XGBoost) ---")
-    
-    # Select Instruments
-    new_files = scan_new_files(p.SILVER_CHUNKED_DIR, p.PLATINUM_TARGETS)
-    
-    # Note: scan_new_files returns files, but Silver Output is Directories. 
-    # We manually scan directories.
-    all_dirs = [d for d in os.listdir(p.SILVER_CHUNKED_DIR) 
-                if os.path.isdir(os.path.join(p.SILVER_CHUNKED_DIR, d))]
-    
-    # Filter only unprocessed
-    # (If the output folder exists, assume processed)
-    to_process = [d for d in all_dirs if not os.path.exists(os.path.join(p.PLATINUM_TARGETS, d))]
-    
-    files_to_process = select_files_interactively(to_process)
+
+    target_arg = sys.argv[1] if len(sys.argv) > 1 else None
+
+    if target_arg:
+        # Non-interactive: orchestrator passed the instrument name directly
+        logger.info(f"Targeted Mode: Processing '{target_arg}'")
+        files_to_process = [target_arg]
+    else:
+        # Interactive: scan for unprocessed instrument directories
+        all_dirs = [d for d in os.listdir(p.SILVER_CHUNKED_DIR)
+                    if os.path.isdir(os.path.join(p.SILVER_CHUNKED_DIR, d))]
+        to_process = [d for d in all_dirs
+                      if not os.path.exists(os.path.join(p.PLATINUM_TARGETS, d))]
+        files_to_process = select_files_interactively(to_process)
 
     if not files_to_process:
         logger.info("No instruments selected.")

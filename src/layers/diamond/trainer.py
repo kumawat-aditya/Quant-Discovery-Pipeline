@@ -238,25 +238,38 @@ def main():
     mode = "FULL MEMORY (SERVER)" if c.DIAMOND_LOAD_FULL_DATASET_IN_MEMORY else "ITERATIVE (LOW RAM)"
     logger.info(f"Loading Mode: {mode}")
     
-    if not p.PLATINUM_TARGETS.exists(): return
+    if not p.PLATINUM_TARGETS.exists():
+        logger.error("Platinum targets directory does not exist. Run the Platinum layer first.")
+        return
 
     instruments = sorted([d.name for d in p.PLATINUM_TARGETS.iterdir() if d.is_dir()])
     if not instruments:
-        logger.info("No datasets found.")
+        logger.info("No datasets found in Platinum targets.")
         return
 
-    print("\nAvailable Instruments:")
-    for i, inst in enumerate(instruments): print(f"[{i+1}] {inst}")
-        
-    choice = input("\nSelect instrument (e.g., 1) or 'a': ").strip().lower()
-    selected = instruments if choice == 'a' else [instruments[int(choice)-1]] if choice.isdigit() else []
+    target_arg = sys.argv[1] if len(sys.argv) > 1 else None
+
+    if target_arg:
+        # Non-interactive: orchestrator passed the instrument name directly
+        if target_arg not in instruments:
+            logger.error(f"Instrument '{target_arg}' not found in {p.PLATINUM_TARGETS}.")
+            return
+        logger.info(f"Targeted Mode: Training '{target_arg}'")
+        selected = [target_arg]
+    else:
+        # Interactive selection
+        print("\nAvailable Instruments:")
+        for i, inst in enumerate(instruments):
+            print(f"[{i+1}] {inst}")
+        choice = input("\nSelect instrument (e.g., 1) or 'a': ").strip().lower()
+        selected = instruments if choice == 'a' else [instruments[int(choice)-1]] if choice.isdigit() else []
 
     for instr in selected:
         logger.info(f"--- Starting Training for {instr} ---")
         train_xgb_model(instr)
 
     end_time = time.time()
-    logger.info(f"Bronze layer generation complete. Total Runtime: {end_time - start_time:.2f}s")
+    logger.info(f"Diamond layer training complete. Total Runtime: {end_time - start_time:.2f}s")
     
 if __name__ == "__main__":
     main()
