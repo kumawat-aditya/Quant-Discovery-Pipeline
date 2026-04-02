@@ -15,7 +15,7 @@ import logging
 from typing import Dict, List, Optional
 
 # Import the configuration for easy access to parameters
-from live_config import TIMEFRAME, HISTORY_BARS_COUNT, SYMBOLS_TO_TRACK
+from legacy.mt5_validator.live_config import TIMEFRAME, HISTORY_BARS_COUNT, SYMBOLS_TO_TRACK
 
 # Set up a logger for this module
 logger = logging.getLogger(__name__)

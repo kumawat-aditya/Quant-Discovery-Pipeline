@@ -39,7 +39,7 @@ try:
     import config.config as config
     from utils.logger import setup_logging
     # ### <<< CHANGE: Import the new shared simulation engine >>>
-    from scripts.simulation_engine import run_simulation, init_worker
+    from legacy.scripts.simulation_engine import run_simulation, init_worker
 except ImportError as e:
     logging.critical(f"Failed to import project modules. Ensure config.py, logger_setup.py, and simulation_engine.py are accessible: {e}")
     sys.exit(1)

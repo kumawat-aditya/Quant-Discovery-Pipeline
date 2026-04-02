@@ -14,7 +14,7 @@ import time
 from typing import Optional
 
 # Import the configuration from our live_config file
-from live_config import MT5_PATH, MT5_LOGIN, MT5_PASSWORD, MT5_SERVER
+from legacy.mt5_validator.live_config import MT5_PATH, MT5_LOGIN, MT5_PASSWORD, MT5_SERVER
 
 # Set up a logger for this module
 logger = logging.getLogger(__name__)

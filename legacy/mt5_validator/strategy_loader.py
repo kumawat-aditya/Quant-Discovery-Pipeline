@@ -14,7 +14,7 @@ import os
 from typing import List, Dict, Any
 
 # Import the paths from the live configuration
-from live_config import DIAMOND_DATA_PATH
+from legacy.mt5_validator.live_config import DIAMOND_DATA_PATH
 
 # Set up a logger for this module
 logger = logging.getLogger(__name__)

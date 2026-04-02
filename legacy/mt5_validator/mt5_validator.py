@@ -15,12 +15,12 @@ import pandas as pd
 from typing import List, Dict, Any, Optional
 
 # Import all our custom engine components and configuration
-from live_config import MT5_PATH, MT5_LOGIN, MT5_PASSWORD, MT5_SERVER, DIAMOND_DATA_PATH, TIMEFRAME, HISTORY_BARS_COUNT, SYMBOLS_TO_TRACK, POLLING_INTERVAL_SECONDS
-from mt5_connector import MT5Connector
-from data_engine import DataEngine
-from feature_engine import FeatureEngine
-from strategy_loader import StrategyLoader
-from trading_engine import TradingEngine
+from legacy.mt5_validator.live_config import MT5_PATH, MT5_LOGIN, MT5_PASSWORD, MT5_SERVER, DIAMOND_DATA_PATH, TIMEFRAME, HISTORY_BARS_COUNT, SYMBOLS_TO_TRACK, POLLING_INTERVAL_SECONDS
+from legacy.mt5_validator.mt5_connector import MT5Connector
+from legacy.mt5_validator.data_engine import DataEngine
+from legacy.mt5_validator.feature_engine import FeatureEngine
+from legacy.mt5_validator.strategy_loader import StrategyLoader
+from legacy.mt5_validator.trading_engine import TradingEngine
 
 # --- Logger Setup ---
 logging.basicConfig(

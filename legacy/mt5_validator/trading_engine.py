@@ -15,8 +15,8 @@ import numpy as np
 import logging
 from typing import Dict, Any
 
-from mt5_connector import MT5Connector
-from live_config import LOT_SIZE, MAX_OPEN_TRADES_PER_STRATEGY
+from legacy.mt5_validator.mt5_connector import MT5Connector
+from legacy.mt5_validator.live_config import LOT_SIZE, MAX_OPEN_TRADES_PER_STRATEGY
 
 # Set up a logger for this module
 logger = logging.getLogger(__name__)
