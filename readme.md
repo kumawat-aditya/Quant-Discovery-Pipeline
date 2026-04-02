@@ -1,156 +1,231 @@
 # Quantitative Strategy Discovery Pipeline
 
-This project is a high-performance, end-to-end pipeline for the automated discovery, backtesting, and validation of quantitative trading strategies from raw financial market data. It employs a multi-layered data processing architecture, funneling a vast universe of potential trades through progressively sophisticated stages of enrichment, machine learning, and validation to uncover a small set of robust, high-potential strategies.
+A high-performance, end-to-end pipeline for automated discovery of quantitative trading strategies from raw OHLCV market data. The system exhaustively simulates millions of trades, enriches them with 300+ market-context features, and feeds the result into either a **Decision Tree rule miner** or a **unified XGBoost classifier** to extract statistically-validated edges.
 
-The entire system is designed to be modular, scalable, and automated, allowing for the systematic mining of market data for repeatable patterns and alpha.
+---
 
-## Key Features
+## Project Overview
 
-- **Modular Architecture**: A five-layer (Bronze, Silver, Gold, Platinum, Diamond) design where each stage has a clear, distinct responsibility.
-- **High Performance**: Optimized for speed using parallel processing (`multiprocessing`), JIT compilation (`Numba`), and efficient columnar data formats (`Parquet`).
-- **Methodologically Sound**: Incorporates best practices to combat common pitfalls in financial ML, including time-series-aware data scaling to prevent look-ahead bias.
-- **Intelligent Discovery**: Uses a Decision Tree model to mine for explicit, human-readable trading rules rather than operating as a "black box".
-- **Automated Feedback Loop**: The system learns from its mistakes. Failed strategies identified during backtesting are automatically blacklisted, forcing the discovery engine to find novel, alternative rules in subsequent runs.
-- **Fully Automated**: A master `orchestrator.py` script allows for a complete, end-to-end "one-command" run for any given instrument.
+The pipeline ingests raw forex OHLCV CSV files and answers the question:
 
-## Project Architecture
+> _"Given the market conditions at a specific candle, what Stop Loss / Take Profit configuration has a statistically proven edge?"_
 
-The pipeline processes data through a series of layers, where each layer refines and adds value to the data from the previous one.
+It does this through five layered stages, culminating in one of two terminal strategies:
 
-**`raw_data/*.csv`** (Input)
-↓
-**1. Bronze Layer (The Possibility Engine)**: Ingests raw OHLC price data and performs a brute-force simulation to generate a massive dataset of every conceivable winning trade based on a predefined grid of Stop-Loss/Take-Profit ratios.
-↓
-**2. Silver Layer (The Enrichment Engine)**: Calculates a comprehensive suite of technical indicators and market features. It then enriches the Bronze layer trades with this market context, describing the relationship between SL/TP levels and key market structures.
-↓
-**3. Gold Layer (The ML Preprocessor)**: Transforms the human-readable Silver features into a purely numerical, scaled, and normalized format that is perfectly optimized for machine learning algorithms.
-↓
-**4. Platinum Layer (The Rule Miner)**: This is the intelligent core. It first discovers abstract strategy "blueprints" from the enriched trade data. Then, it uses a Decision Tree model to mine the Gold layer data for specific, human-readable market rules that predict when these blueprints are most profitable.
-↓
-**5. Diamond Layer (The Gauntlet)**: This is the final validation and analysis stage. It performs high-fidelity backtesting on discovered strategies, filters them through a strict set of performance criteria to find "Master Strategies," and then stress-tests these masters across a portfolio of related instruments to ensure robustness.
+| Terminal          | Output                                                              |
+| ----------------- | ------------------------------------------------------------------- |
+| **Decision Tree** | Human-readable market condition rules saved as Parquet              |
+| **XGBoost**       | Trained binary classification model (`.json`) + feature importances |
+
+---
+
+## Pipeline Summary
+
+```
+data/raw/{instrument}.csv
+        │
+        ▼
+  🥉 Bronze Layer     — Exhaustive BUY/SELL simulation (Numba JIT + multiprocessing)
+        │                 Output: data/bronze/{inst}.parquet
+        ▼
+  🥈 Silver Layer     — Feature engineering + trade enrichment (indicators, ZigZag S/R, sessions)
+        │                 Output: data/silver/features/ + data/silver/chunked_outcomes/
+        ▼
+  🥇 Gold Layer       — ML normalisation (relational transform, one-hot, rolling Z-score)
+        │                 Output: data/gold/features/{inst}.parquet
+        ▼
+  🔀 Platinum Layer   — SPLIT based on user selection
+        │
+        ├── [Decision Tree path] ─────────────────────────────────────────────────────┐
+        │     data_prepper.py   → Map-Reduce blueprint discovery                       │
+        │     strategy_discoverer.py → DecisionTree rule mining                        │
+        │     Output: data/platinum/discovered_strategies/{inst}.parquet           ✅ STOP
+        │
+        └── [XGBoost path] ────────────────────────────────────────────────────────────┐
+              dataset_builder.py → Gold ⋈ Silver inner join → training matrix           │
+              Output: data/platinum/targets/{inst}/part_N.parquet                       │
+                    │                                                                    │
+                    ▼                                                                    │
+            ⬡ Diamond Layer  — XGBoost training (full-memory or iterative iterator)    │
+              Output: data/diamond/strategies/{inst}_xgb.json                      ✅ STOP
+```
+
+---
+
+## Prerequisites
+
+- **Python 3.9+**
+- **TA-Lib C library** — must be installed before the Python wrapper:
+  - **Linux**: Build from source — see [TA-Lib GitHub](https://github.com/TA-Lib/ta-lib)
+  - **macOS**: `brew install ta-lib`
+  - **Windows**: Use the pre-built wheel in the repo root (`ta_lib-0.6.7-cp313-cp313-win_amd64.whl`)
+
+---
+
+## Setup
+
+```bash
+# 1. Clone the repository
+git clone <your-repository-url>
+cd Quant-Strategy-discovery
+
+# 2. Create & activate a virtual environment
+python -m venv venv
+source venv/bin/activate        # Linux / macOS
+# venv\Scripts\activate         # Windows
+
+# 3. Install TA-Lib C library first (Linux example)
+wget http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz
+tar -xzf ta-lib-0.4.0-src.tar.gz && cd ta-lib
+./configure --prefix=/usr && make && sudo make install && cd ..
+
+# 4. Install Python dependencies
+pip install -r requirements.txt
+
+# 5. Place raw OHLCV CSV files in data/raw/
+#    Filenames must follow the pattern {INSTRUMENT}{TIMEFRAME}.csv
+#    e.g.  EURUSD1.csv  EURUSD15.csv  XAUUSD60.csv
+```
+
+### Key Dependencies
+
+| Package        | Purpose                                            |
+| -------------- | -------------------------------------------------- |
+| `numba`        | JIT-compile the trade simulation inner loop        |
+| `ta`           | Technical indicator calculations                   |
+| `TA-Lib`       | Candlestick pattern recognition (CDL functions)    |
+| `pyarrow`      | Parquet I/O throughout the pipeline                |
+| `scikit-learn` | `DecisionTreeRegressor` for the Decision Tree path |
+| `xgboost`      | Model training in the Diamond layer                |
+| `tqdm`         | Progress bars                                      |
+
+---
+
+## Running the Pipeline
+
+### Option A — Orchestrator (Recommended)
+
+The orchestrator runs the full pipeline non-interactively after an initial two-question setup:
+
+```bash
+python orchestrator.py
+```
+
+1. Select the instrument (lists all CSVs in `data/raw/`)
+2. Select pipeline type: `[1] Decision Tree` or `[2] XGBoost`
+
+The orchestrator then runs Bronze → Silver → Gold → (Platinum Decision Tree → STOP) or (Platinum Dataset Builder → Diamond → STOP).
+
+### Option B — Layer by Layer
+
+Each layer script can be run independently. Pass the instrument name (without extension) as the first argument to skip interactive prompts:
+
+```bash
+# Bronze — simulate trades
+python src/layers/bronze/generator.py EURUSD60
+
+# Silver — feature engineering + enrichment
+python src/layers/silver/generator.py EURUSD60
+
+# Gold — normalise features
+python src/layers/gold/generator.py EURUSD60
+
+# Platinum — Decision Tree path
+python src/layers/platinum/data_prepper.py EURUSD60
+python src/layers/platinum/strategy_discoverer.py EURUSD60
+
+# OR — XGBoost path
+python src/layers/platinum/dataset_builder.py EURUSD60
+python src/layers/diamond/trainer.py EURUSD60
+```
+
+If no argument is given, each script will present an interactive file selection menu.
+
+---
+
+## Configuration
+
+All pipeline parameters are stored in `config/config.py`. No other file needs to be modified for a standard run.
+
+| Section      | Key Parameters                                                                              |
+| ------------ | ------------------------------------------------------------------------------------------- |
+| **Global**   | `MAX_CPU_USAGE`, log levels                                                                 |
+| **Bronze**   | `TIMEFRAME_PRESETS` (SL/TP grids per timeframe), `BRONZE_GENERATION_MODE`, spread maps      |
+| **Silver**   | Indicator periods (`SMA_PERIODS`, `EMA_PERIODS`, …), `SWING_ATR_MULTIPLIER`, session bins   |
+| **Gold**     | `GOLD_NORMALIZATION_CONFIG` (relational transform rules), `GOLD_SCALER_ROLLING_WINDOW`      |
+| **Platinum** | `PLATINUM_DT_MAX_DEPTH`, `PLATINUM_MIN_CANDLES_PER_RULE`, `PLATINUM_DENSITY_LIFT_THRESHOLD` |
+| **Diamond**  | `DIAMOND_XGB_PARAMS`, `DIAMOND_BOOST_ROUNDS`, `DIAMOND_LOAD_FULL_DATASET_IN_MEMORY`         |
+
+Set `DIAMOND_LOAD_FULL_DATASET_IN_MEMORY = True` if you have ≥ 64 GB RAM for significantly faster XGBoost training.
+
+---
 
 ## Directory Structure
 
 ```
-/
-├── raw_data/                 # Input: Your raw OHLC price data (.csv)
-├── scripts/                  # All the Python scripts for the pipeline layers
-│   ├── bronze_data_generator.py
-│   ├── silver_data_generator.py
-│   ├── gold_data_generator.py
-│   ├── platinum_prepper.py
-│   ├── platinum_strategy_discoverer.py
-│   ├── diamond_data_prepper.py
-│   ├── diamond_backtester.py
-│   ├── diamond_validator.py
-│   ├── simulation_engine.py      # Shared backtesting logic
-│   └── logger_setup.py         # Reusable logging utility
-├── bronze_data/                # Output: Brute-force trade possibilities (.parquet)
-├── silver_data/                # Output: Enriched trades and market features
-├── gold_data/                  # Output: ML-ready numerical features
-├── platinum_data/              # Output: Discovered blueprints and strategies
-├── diamond_data/               # Output: Final reports, trade logs, and validated strategies
-├── logs/                       # Output: Detailed logs for each script run
-├── config.py                   # Central configuration file for all parameters
-├── orchestrator.py             # Master script to run the full pipeline
-└── requirements.txt            # Project dependencies
+Quant-Strategy-discovery/
+├── orchestrator.py                    ← Single entry point — option-driven pipeline runner
+├── config/
+│   └── config.py                      ← All pipeline parameters
+├── src/
+│   ├── layers/
+│   │   ├── bronze/
+│   │   │   └── generator.py           ← Trade simulation engine
+│   │   ├── silver/
+│   │   │   └── generator.py           ← Feature engineering + enrichment
+│   │   ├── gold/
+│   │   │   └── generator.py           ← ML normalisation preprocessor
+│   │   ├── platinum/
+│   │   │   ├── data_prepper.py        ← [DT path] Map-Reduce blueprint discovery
+│   │   │   ├── strategy_discoverer.py ← [DT path] Decision Tree rule miner
+│   │   │   └── dataset_builder.py     ← [XGBoost path] Training matrix builder
+│   │   └── diamond/
+│   │       └── trainer.py             ← [XGBoost path] XGBoost model trainer
+│   └── utils/
+│       ├── paths.py                   ← Centralised Path objects + ensure_directories()
+│       ├── logger.py                  ← Rotating file + console logger setup
+│       ├── file_selector.py           ← scan_new_files / select_files_interactively
+│       └── raw_data_loader.py         ← Clean CSV loader
+├── data/
+│   ├── raw/                           ← INPUT: OHLCV CSV files
+│   ├── bronze/                        ← Trade simulation Parquet
+│   ├── silver/
+│   │   ├── features/                  ← Per-candle indicator features
+│   │   └── chunked_outcomes/          ← Enriched trade chunks
+│   ├── gold/
+│   │   └── features/                  ← ML-normalised feature matrix
+│   ├── platinum/
+│   │   ├── combinations/              ← Blueprint catalogue
+│   │   ├── targets/                   ← DT: density time-series │   │   │                                  XGBoost: training matrix shards
+│   │   ├── discovered_strategies/     ← [DT] Human-readable rules  ← OUTPUT [DT]
+│   │   └── discovery_log/             ← Incremental processing log
+│   └── diamond/
+│       └── strategies/                ← [XGBoost] Model JSON + feature importances  ← OUTPUT [XGBoost]
+├── docs/
+│   ├── bronze_architecture.md
+│   ├── silver_architecture.md
+│   ├── gold_architecture.md
+│   ├── platinum_decision_tree_arch.md
+│   ├── platinum_xgboost_arch.md
+│   ├── diamond_architecture.md
+│   └── FULL_ARCHITECTURE.md           ← Complete system architecture reference
+├── logs/                              ← Rotating log files per layer
+├── requirements.txt
+└── pyenv_setup.txt                    ← Virtual environment setup notes
 ```
 
-## Setup and Installation
+---
 
-### Prerequisites
+## Documentation
 
-- Python 3.9+
-- The `TA-Lib` technical analysis library. This is a C-library and must be installed on your system _before_ you install the Python wrapper.
-  - **Windows**: Download `ta-lib-0.4.0-msvc.zip` from [lfd.uci.edu/~gohlke/pythonlibs/](https://www.lfd.uci.edu/~gohlke/pythonlibs/#ta-lib) and follow instructions.
-  - **macOS**: `brew install ta-lib`
-  - **Linux**: Follow the instructions on the [TA-Lib GitHub](https://github.com/mrjbq7/ta-lib).
+Detailed architecture documents for each layer are in the `docs/` folder:
 
-### Installation Steps
-
-1.  **Clone the repository:**
-
-    ```bash
-    git clone <your-repository-url>
-    cd <repository-name>
-    ```
-
-2.  **Create and activate a virtual environment:**
-
-    ```bash
-    python -m venv venv
-    source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
-    ```
-
-3.  **Install the required Python packages:**
-    The project includes a `requirements.txt` file with all necessary libraries.
-
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-4.  **Add Raw Data:**
-    Place your raw OHLC data in `.csv` format inside the `raw_data` directory. The files must contain columns for `time`, `open`, `high`, `low`, and `close`.
-
-## Configuration
-
-All pipeline parameters are managed in the central **`config.py`** file. This single source of truth allows you to tune every aspect of the discovery and validation process, including:
-
-- **CPU Usage & Logging**: Global settings for parallelization and log levels.
-- **Bronze Layer**: The SL/TP ratio grids and lookforward periods for the initial simulation.
-- **Silver Layer**: The periods and parameters for all technical indicators.
-- **Gold Layer**: The rolling window size for time-series-aware feature scaling.
-- **Platinum Layer**: The thresholds and hyperparameters for the Decision Tree rule mining.
-- **Simulation & Cost Model**: The spread, commission, and slippage assumptions for all backtests.
-- **Diamond Layer**: The performance criteria (Profit Factor, Max Drawdown, etc.) for a strategy to be considered a "Master".
-
-## How to Run the Pipeline
-
-There are two primary ways to run the pipeline:
-
-### 1. Fully Automated End-to-End Run (Recommended)
-
-The `orchestrator.py` script is the master controller designed to run the entire pipeline for a single instrument without any user interaction.
-
-1.  Make sure your desired `.csv` file is in the `raw_data` directory.
-2.  Run the orchestrator:
-    ```bash
-    python orchestrator.py
-    ```
-3.  The script will prompt you to select which instrument to process. After selection, it will execute each layer in the correct sequence automatically.
-
-### 2. Manual, Layer-by-Layer Execution
-
-For debugging, development, or more granular control, you can run each script individually. Most scripts feature an interactive menu to select the specific file or instrument you wish to process.
-
-**Example Sequence for `EURUSD60.csv`:**
-
-```bash
-# 1. Generate Bronze Data
-python scripts/bronze_data_generator.py
-
-# 2. Generate Silver Data
-python scripts/silver_data_generator.py
-
-# 3. Generate Gold Data
-python scripts/gold_data_generator.py
-
-# ...and so on for each layer in sequence.
-```
-
-## The Feedback Loop
-
-A key feature of this pipeline is its ability to learn. The process works as follows:
-
-1.  `platinum_strategy_discoverer` finds a new strategy (e.g., Blueprint A + Rule X).
-2.  `diamond_backtester` tests this strategy and finds that it fails to meet the performance criteria (e.g., its profit factor is too low).
-3.  The backtester adds the failing strategy (`key` + `market_rule`) to a **blacklist** file for that instrument.
-4.  On the next run, the `platinum_strategy_discoverer` loads this blacklist. When it analyzes Blueprint A again, it is now forbidden from generating Rule X. This forces the Decision Tree to find a new, potentially better rule (e.g., Rule Y), thus improving the quality of discovered strategies over time.
-
-## Outputs
-
-The final, valuable outputs of the pipeline are located in the `diamond_data/final_reports` directory. These Parquet files provide a comprehensive, multi-faceted view of the performance of the validated "Master Strategies":
-
-- **`{instrument}_detailed.parquet`**: Performance metrics for each strategy on every market it was tested on.
-- **`{instrument}_summary.parquet`**: Average performance metrics for each strategy across all tested markets.
-- **`{instrument}_regime_analysis.parquet`**: A breakdown of strategy performance under different market conditions (e.g., 'trending' vs. 'ranging', 'high-vol' vs. 'low-vol', different trading sessions).
+| Document                                                                   | Covers                                                                    |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| [docs/bronze_architecture.md](docs/bronze_architecture.md)                 | Trade simulation, Numba JIT, generation modes                             |
+| [docs/silver_architecture.md](docs/silver_architecture.md)                 | Indicator calculation, ZigZag S/R, ATR-normalised feature enrichment      |
+| [docs/gold_architecture.md](docs/gold_architecture.md)                     | Relational transform, categorical encoding, strict Z-score policy         |
+| [docs/platinum_decision_tree_arch.md](docs/platinum_decision_tree_arch.md) | Map-Reduce blueprint discovery, Decision Tree rule mining (terminal path) |
+| [docs/platinum_xgboost_arch.md](docs/platinum_xgboost_arch.md)             | Gold⋈Silver join, training matrix construction (transitional to Diamond)  |
+| [docs/diamond_architecture.md](docs/diamond_architecture.md)               | XGBoost training, full-memory vs iterative mode, temporal split           |
+| [docs/FULL_ARCHITECTURE.md](docs/FULL_ARCHITECTURE.md)                     | Complete system overview, all layer flows, config reference, ADRs         |
